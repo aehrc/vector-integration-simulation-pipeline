@@ -45,7 +45,7 @@ def main(argv):
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
 	parser.add_argument('--ints', help = 'output fasta file', required = True, type=str)
 	parser.add_argument('--locs', help = 'output text with viral integrations', required = True, type=str)
-	parser.add_argument('--ints_host', help = 'output csv with integration locations in host genome', required = True, type=str)
+	parser.add_argument('--locs_host', help = 'output csv with integration locations in host genome', required = True, type=str)
 	parser.add_argument('--int_num', help = 'number of integrations to be carried out', required=True, type=int)
 	parser.add_argument('--fasta', help = 'output fasta of integrated host genome', required = False, type=str)
 	parser.add_argument('--sep', help = 'integrations must be separated by this many bases [20]', required=False, default=20, type=int)
@@ -200,7 +200,7 @@ def main(argv):
 	
 	#save statistics on the integration 
 	stats = Statistics.saveStats(host_ints)
-	with open(args.ints_host, 'w') as handle:
+	with open(args.locs_host, 'w') as handle:
 		stats.to_csv(handle,sep='\t')
 	
 	#save integrated host sequence 
@@ -209,7 +209,7 @@ def main(argv):
     		handle.close()
     		print("\nIntegrated host saved as "+str(args.ints),flush=True)
     		print("Details of sequences integrated saved as "+str(args.locs),flush=True)
-    		print("Details of where intgrations lie in host sequence saved as "+str(args.ints_host),flush=True)
+    		print("Details of where intgrations lie in host sequence saved as "+str(args.locs_host),flush=True)
 
 def insertWholeVirus(host, viruses, int_list, filehandle, length, sep, set_junc):
 	"""Inserts whole viral genome into host genome"""
