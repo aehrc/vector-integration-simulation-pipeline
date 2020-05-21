@@ -33,9 +33,13 @@ import argparse
 import sys
 import os
 import numpy as np
+import pdb
 print("STARTING", flush=True) 
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
+
+int_virus_portions = ['whole', 'portion', 'both']
+int_junc_types = ['clean', 'gap', 'overlap', 'rand']
 
 ### main
 def main(argv):
@@ -51,10 +55,10 @@ def main(argv):
 	parser.add_argument('--min_len', help = 'minimum length of integerations [50]', required=False, default=50, type=int)
 	parser.add_argument('--set_len', help = 'use to get integrations of a specific length', required=False, default=0, type=int)
 	parser.add_argument('--epi_num', help = 'number of episomes [0]', required=False, default=0, type=int)
-	parser.add_argument('--int_portion', help = 'specify is a particular type of integrations are wanted: whole, portion, both [both]', required=False, default='both', type=str)
+	parser.add_argument('--int_portion', help = 'specify which part of the virus(es) to insert: whole, portion, both [both]', required=False, default='both', type=str, choices=int_virus_portions)
 	parser.add_argument('--int_deletion', help = 'specify if deletions should be conducted on none, some or all integrations [some]', required=False, default='rand', type=str)
 	parser.add_argument('--int_rearrange', help = 'specify if rearrangements should be conducted on none, some or all integrations [some]', required=False, default='rand', type=str)
-	parser.add_argument('--set_junc', help = 'specify is a particular type of junctions are wanted from: clean, gap, overlap or rand [rand]', required=False, default='rand', type=str)
+	parser.add_argument('--set_junc', help = 'specify is a particular type of junctions are wanted from: clean, gap, overlap or rand [rand]', required=False, default='rand', type=str, choices=int_junc_types)
 	parser.add_argument('--seed', help = 'seed for random number generator', required=False, default=1, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', required=False, default=False, type=bool)
 	args = parser.parse_args()
@@ -68,6 +72,9 @@ def main(argv):
 	#read virus fasta -  make dictionary in memory of sequences
 	if checkFastaExists(args.virus):
 		virus = SeqIO.to_dict(SeqIO.parse(args.virus, 'fasta', alphabet=unambiguous_dna))
+		# convert all viral sequences to upper case to make it easier to check output
+		for this_virus in virus.values():
+			this_virus.seq = this_virus.seq.upper()
 	else:
 		raise OSError("Could not open virus fasta")
 
@@ -81,6 +88,10 @@ def main(argv):
 	if (args.set_len != 0) and (not(all([args.set_len < len(seq) for seq in virus.values()]))):
 		raise ValueError(f"Minimum integration length (--set_len) must be longer than all virus sequences. \
 				   viral sequence lengths: {[len(seq) for seq in virus.values()]}")
+				   
+	# check that the user hasn't specified a set length and all the integrations to be whole
+	if args.set_len != 0 and args.int_portion == 'whole':
+		raise ValueError("Can't specify both a set length and whole viral integrations")
 
 	# check that minimum separation allows for the desired number of integrations
 	# assume that number of bases that are ruled out for each integration is 2 x sep
@@ -213,33 +224,35 @@ def main(argv):
 def insertWholeVirus(host, viruses, int_list, filehandle, length, sep, set_junc):
 	"""Inserts whole viral genome into host genome"""
 
-	#get positions of all current integrations
+	pdb.set_trace()
+
+	# get positions of all current integrated (viral) bases relative to host with integrations
 	currentPos = Statistics.integratedIndices(int_list)
 
-	#make sure that new integration is not within args.sep bases of any current integrations
+	# make sure that new integration is not within args.sep bases of any current integrations
 	attempts = 0
  
 	while True:
-		#get one viral chunk
+		# get one viral chunk
 		currentInt = Integration(host, set_junc)
 		currentInt.addFragment(viruses, length, part = "whole")
 		attempts += 1
-		#check that all integrations are sep away from new integration
+		# check that all integrations are sep away from new integration
 		if all([ abs(currentInt.hPos-i) > sep for i in currentPos ]):
 			break
-		#if we've made a lot of attempts, give up
+		# if we've made a lot of attempts, give up
 		elif attempts > max_attempts:
 			return int_list, host
 	
-	#do integration
+	#  do integration
 	host, status = currentInt.doIntegration(host, int_list,filehandle)
 	#only save if integration was successful 
 	if status == True:
 	
-		#write to output fileh
+		# write to output file
 		currentInt.writeIntegration(filehandle)
 	
-		#append to int_list
+		# append to int_list
 		int_list.append(currentInt)
 	
 	return int_list, host
@@ -580,20 +593,18 @@ class Integration:
 		#integration cannot not have negative overlap at both ends 
 
 
-		junc_dict = {'clean': 0, 'gap': 1, 'overlap': 2}
 		junction_types = ['clean', 'gap', 'overlap']
 
 		if set_junc == 'rand': 
-			junc_num = np.random.randint(0, len(junction_types)) 
+			this_junc = np.random.choice(junction_types) 
 		else: 
 			if set_junc not in junction_types: 
 				raise OSError("Not a valid type of junction")
 			else: 
-				junc_num = junc_dict.get(str(set_junc))
+				this_junc = set_junc
 				
-		this_junc = junction_types[junc_num] 
 
-		#generate junctions 
+		#generate junctions of specified type
 		self.overlaps = self.addJunction(this_junc) 
 		
 		#record the type of junction for saving to file later
@@ -933,7 +944,7 @@ class Integration:
 		return dont_integrate	
 		
 			
-	def doIntegration(self, host, int_list,filehandle):
+	def doIntegration(self, host, int_list, filehandle):
 		"""
 		Inserts viral DNA (self.bases) at position self.hPos in host[self.chr]
 		"""
@@ -944,18 +955,15 @@ class Integration:
 		if self.fragments < 1:
 			print("Add fragment before doing integration!")
 			return
-			
-		#allows us to print whether or not the integration was successful 
-		self.inserted = True 
 		
-		#need to account for previous integrations when inserting bases
-		#get the number of bases previously added to this chromosome
+		# need to account for previous integrations when inserting bases
+		# get the number of bases previously added to this chromosome
 		prevAdded = 0
 		for int in int_list:
 			if (int.chr == self.chr) & (int.hPos < self.hPos):
 				prevAdded += int.numBases
 
-		#keep track of how many bases added in this integration 
+		# keep track of how many bases added in this integration 
 		self.numBases = self.overlaps[0] + self.overlaps[1] + len(self.chunk.bases)
 
 		#use for inserting viral_chunk
@@ -968,7 +976,7 @@ class Integration:
 		previousInt = Statistics.intList(self,int_list)
 
 		#adjust left overlap 
-		if self.overlaps[0]<0:
+		if self.overlaps[0] < 0:
 			(int_start,int_stop) = self.createLeftOverlap(host,int_list,filehandle)
 			#remove homologous region so there is not double 
 			self.chunk.bases = self.chunk.bases[-self.overlaps[0]:]
@@ -977,7 +985,7 @@ class Integration:
 			int_stop = int_start 
 			 
 		#adjust sequences with right overlap  		
-		if self.overlaps[1]<0:
+		if self.overlaps[1] < 0:
 			(int_start,int_stop) = self.createRightOverlap(host,int_list,filehandle)
 			int_stop = int_start 
 			self.chunk.bases = self.chunk.bases[:len(self.chunk.bases)+self.overlaps[1]] 
@@ -995,6 +1003,9 @@ class Integration:
 		#set the starting and stopping points of the performed integration 
 		self.setStopStart(int_start,int_stop) 
 
+		# allows us to print whether or not the integration was successful 
+		self.inserted = True 
+		
 		return host, status 
 
 
@@ -1044,34 +1055,42 @@ class Integration:
 	def convertJunction(self,value):
 		"""
 		Converts junction coordinates to names for saving to file
+		Coordinate of 0 means clean junction, positive value means gap, negative value means overlap
 		""" 
 		type = ""
 		if value == 0: 
 			type = "clean" 	
 		elif value > 0: 
 			type = "gap"
-		elif value <0: 
+		elif value < 0: 
 			type = "overlap" 
+		if type == "":
+			raise ValueError(f"invalid junction type in {self}")
 		return type 
 		
 	def setStopStart(self,int_start,int_stop): 
 		""" provides coordinates of where viral DNA starts and ends. hstart and hstop denote human genome"""
 
-		if self.overlaps[0]>0: # ie there is a gap 
+		# set self.hstart - start position relative to genome with integrations
+		# adjust for gap/overlaps
+		if self.overlaps[0] > 0: # ie there is a gap 
 			self.hstart = int_start+self.overlaps[0]
-		elif self.overlaps[0]<0: # ie there is an overlap
+		elif self.overlaps[0] < 0: # ie there is an overlap
 			self.hstart = int_start 
 		else: 
 			self.hstart = int_start 
 			
-		if self.overlaps[1]>0: # ie there is a gap
-			self.hstop = int_stop-self.overlaps[1]
-		elif self.overlaps[1]<0: #i e there is an overlap 
+		# set self.hstop - stop position relative to genome with integrations
+		# adjust for gap/overlaps
+		if self.overlaps[1] > 0: # ie there is a gap
+			self.hstop = int_stop - self.overlaps[1]
+		elif self.overlaps[1] < 0: #i e there is an overlap 
 			self.hstop = int_stop
 		else: 
 			self.hstop = int_stop 
 			
-		self.hstop = self.hstop+len(self.chunk.bases) 
+		# adjust for integrated bases
+		self.hstop = self.hstop + len(self.chunk.bases) 
 
 		
 	def __repr__(self):
@@ -1097,7 +1116,7 @@ class ViralChunk:
 		self.virus = np.random.choice(list(viruses.keys()))
 		
 		# parse length, which specifies if the integration length is either a set number or a minimum length
-		# this is a s a string composed of either 'min' or 'set' and the corresponding length, separated by an underscore
+		# this is a string composed of either 'min' or 'set' and the corresponding length, separated by an underscore
 		(int_len_type, int_len) = length.split("_")
 		int_len = int(int_len)
 		
@@ -1128,7 +1147,7 @@ class ViralChunk:
 			self.bases = viruses[self.virus][self.start:self.stop].reverse_complement() #get bases to insert remove this one
 		
 		#construct dictionary with keys 'bases', 'ori' and 'coords'
-		#use to keep track of order if 
+		#use to keep track of order if rearranged
 		self.pieces = {0:{"bases":self.bases, "ori":self.ori, "coords":(self.start, self.stop)}}
 
 		#store information about changes made to the chunk 
@@ -1220,7 +1239,7 @@ class ViralChunk:
 		self.isRearranged = True #rearranged is now true
 			
 	def delete(self, n):
-		#delete a middle from a viral chunk of n pieces
+		#delete a middle piece from a viral chunk of n pieces
 		
 		#if there are less than 3 pieces, just use 3
 		if n < 2:
@@ -1255,7 +1274,7 @@ class ViralChunk:
 		split = "split" if self.isSplit else "unsplit"
 		rearranged = "rearranged" if self.isRearranged else "unrearranged"
 		deletion = "deletion" if self.deletion else "no deletion"
-		return f"{split}, {rearranged} viral chunk with {deletion} from virus {self.virus} with start and stop coordinates ({self.start}, {self.stop}), pieces [self.pieces[key] for key in self.pieces.keys()]."
+		return f"{split}, {rearranged} viral chunk with {deletion} from virus {self.virus} with start and stop coordinates ({self.start}, {self.stop}), pieces {self.pieces.values()}."
 
 class Statistics:
 	"""
@@ -1323,21 +1342,18 @@ class Statistics:
 
 		#adjust intCoords for differences in indexing
 		for i in range(len(intCoords)): 
-			(c1,c2) = intCoords[i]
-			intCoords[i] = (c1, c2-1) 
+			(c1, c2) = intCoords[i]
+			intCoords[i] = (c1, c2 - 1) 
  		
 			
 		return intCoords
-
-
-
 
 	def integratedIndices(int_list): 
 		"""Creates a lisit of sequence indexes which are of viral origin""" 
 		#create list of viral coordinates 		
 		viral_idx = []
 		
-		#number of integrations which have been performed
+		#number of integrations which already have been performed
 		num_ints = len(int_list)  
 		#get start and stop coordinates 
 		if num_ints != 0: 
