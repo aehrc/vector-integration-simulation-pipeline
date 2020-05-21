@@ -47,7 +47,6 @@ def main(argv):
 	parser.add_argument('--locs', help = 'output text with viral integrations', required = True, type=str)
 	parser.add_argument('--locs_host', help = 'output csv with integration locations in host genome', required = True, type=str)
 	parser.add_argument('--int_num', help = 'number of integrations to be carried out', required=True, type=int)
-	parser.add_argument('--fasta', help = 'output fasta of integrated host genome', required = False, type=str)
 	parser.add_argument('--sep', help = 'integrations must be separated by this many bases [20]', required=False, default=20, type=int)
 	parser.add_argument('--min_len', help = 'minimum length of integerations [50]', required=False, default=50, type=int)
 	parser.add_argument('--set_len', help = 'use to get integrations of a specific length', required=False, default=0, type=int)
