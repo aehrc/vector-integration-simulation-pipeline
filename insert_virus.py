@@ -225,24 +225,15 @@ def insertWholeVirus(host, viruses, int_list, filehandle, length, sep, set_junc)
 	"""Inserts whole viral genome into host genome"""
 
 	pdb.set_trace()
-
-	# get positions of all current integrated (viral) bases relative to host with integrations
-	currentPos = Statistics.integratedIndices(int_list)
-
-	# make sure that new integration is not within args.sep bases of any current integrations
-	attempts = 0
- 
-	while True:
-		# get one viral chunk
-		currentInt = Integration(host, set_junc)
-		currentInt.addFragment(viruses, length, part = "whole")
-		attempts += 1
-		# check that all integrations are sep away from new integration
-		if all([ abs(currentInt.hPos-i) > sep for i in currentPos ]):
-			break
-		# if we've made a lot of attempts, give up
-		elif attempts > max_attempts:
-			return int_list, host
+		
+	# try to place an integration
+	try:
+		currentInt = Integration(host, set_junc, int_list)
+	except CannotPlaceIntError:
+		return int_list, host
+			
+	# add viral fragment
+	currentInt.addFragment(viruses, length, part = "whole")
 	
 	#  do integration
 	host, status = currentInt.doIntegration(host, int_list,filehandle)
@@ -271,7 +262,7 @@ def insertSetLength(host, viruses, int_list, filehandle, length, sep, set_len, s
  
 	while True:
 		#get one viral chunk
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addFragment(viruses, length, part = set_len)
 		attempts += 1
 		#check that all integrations are sep away from new integration
@@ -304,7 +295,7 @@ def insertViralPortion(host, viruses, int_list, filehandle, length, sep, set_jun
 	attempts = 0
 	while True:
 		#get one viral chunk 
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addFragment(viruses, length, part = "rand")
 		attempts += 1
 		
@@ -339,7 +330,7 @@ def insertWholeRearrange(host, viruses, int_list, filehandle, length, sep, set_j
 	attempts = 0
 	while True:
 		#get one viral chunk
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addRearrange(viruses, length, part = "whole")
 		attempts += 1
 		
@@ -373,7 +364,7 @@ def insertWithDeletion(host, viruses, int_list, filehandle, length,sep, set_junc
 	attempts = 0
 	while True:
 		#get one viral chunk
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addDeletion(viruses, length ,part = "whole")
 		attempts += 1
 		#check that all integrations are args.sep away from new integration
@@ -407,7 +398,7 @@ def insertPortionRearrange(host, viruses, int_list, filehandle, length,sep, set_
 	attempts = 0
 	while True:
 		#get one viral chunk
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addRearrange(viruses, length, part = "rand")
 		attempts += 1
 		print(currentInt)
@@ -444,7 +435,7 @@ def insertPortionDeletion(host, viruses, int_list, filehandle, length,sep, set_j
 	attempts = 0
 	while True:
 		#get one viral chunk
-		currentInt = Integration(host, set_junc)
+		currentInt = Integration(host, set_junc, int_list)
 		currentInt.addDeletion(viruses, length, part = "rand")
 		attempts += 1
 		#check that all integrations are args.sep away from new integration
@@ -566,24 +557,57 @@ def parseIntTypes(args):
 			
 	return int_types
 	
-class Integrations:
-	"""
-	
-	"""
-	
 class Integration:
 	""" 
 	Class to store the properties of integrations 
 	"""
 	
-	def __init__(self, host, set_junc):
+	def __init__(self, host, set_junc, int_list):
 		"""
 		initalize integration at a random place in the host genome
 		only one integration, but may be of a rearranged chunk
 		"""
-		self.host = host
+		
+		# get random chromosome
 		self.chr = np.random.choice(list(host.keys()))
-		self.hPos = np.random.randint(1, len(host[self.chr].seq))
+		
+		
+		# get positions of all current integrated (viral) bases relative to host with integrations
+		# this is a dict with the chromosome name as key and set of bases as value
+		currentPos = Statistics.integratedIndices(int_list)
+
+		# make sure that new integration is not within args.sep bases of any current integrations
+		attempts = 0
+
+ 
+		#while True:
+		#	# get one viral chunk
+		#	currentInt = Integration(host, set_junc, int_list)
+		#	currentInt.addFragment(viruses, length, part = "whole")
+		#	attempts += 1
+		#	# check that all integrations are sep away from new integration
+		#	if all([ abs(currentInt.hPos-i) > sep for i in currentPos ]):
+		#		break
+		#	# if we've made a lot of attempts, give up
+		#	elif attempts > max_attempts:
+		#		return int_list, host
+
+		
+		
+		# get random position, making sure that we're not too close to other integrations
+		max_attempts
+		attempts = 0
+		while True:
+			# get random position in host
+			self.hPos = np.random.randint(1, len(host[self.chr].seq))
+			attempts += 1
+			if all([ abs(self.hPos-i) > sep for i in currentPos ]):
+				break
+			elif attempts > max_attempts:
+				raise CannotPlaceIntError("too many attempts!")
+
+		
+		# initially there are no viral fragments associated with an integration
 		self.fragments = 0
 		
 		#overlaps and gaps at each end of the integration
@@ -613,6 +637,24 @@ class Integration:
 
 		#used when an integration with an overlap is integrated at a location other than hPos 
 		self.newpoint = -1
+	
+	
+	def integratedIndices(int_list): 
+		"""Creates a list of sequence indexes (bases) within chromosomes which are of viral origin""" 
+		#create list of viral coordinates 		
+		viral_idx = []
+		
+		#number of integrations which already have been performed
+		num_ints = len(int_list)  
+		#get start and stop coordinates 
+		if num_ints != 0: 
+			int_coords = Statistics.adjustedStopStart(int_list[1-num_ints],int_list) 
+			for i in range(0,num_ints): 
+				c1, c2 = int_coords[i]
+				for j in range(c1,c2+1): 
+					viral_idx.append(j) 
+		return viral_idx 
+	
 		
 
 	def addJunction(self, junc):
@@ -667,9 +709,7 @@ class Integration:
 		"""
 		
 		#check there isn't already a fragment
-		if self.fragments > 0:
-			print("Fragment has already been added!")
-			return
+		assert self.fragments == 0
 		
 		#get viral chunk
 		self.chunk = ViralChunk(viruses, length, part)
@@ -684,9 +724,7 @@ class Integration:
 		"""
 		
 		#check there isn't already a fragment
-		if self.fragments > 0:
-			print("Fragment has already been added!")
-			return
+		assert self.fragments == 0
 			
 		#get number of fragments to rearrange into
 		#draw from a poisson distribution with lambda = 1.5
@@ -713,9 +751,7 @@ class Integration:
 		always split into > 3 pieces and delete the middle
 		"""
 		#check there isn't already a fragment
-		if self.fragments > 0:
-			print("Fragment has already been added!")
-			return
+		assert self.fragments == 0
 			
 	#get number of fragments to rearrange into
 		#draw from a poisson distribution with lambda = 2
@@ -1282,24 +1318,26 @@ class Statistics:
 	
 	"""
 	
-	def intList(self,int_list):
+	def intList(self, int_list):
 		"""Makes list of the sites of previously preformed integrations and adjusts for the bases added due to integration"""	
 		previousInt = [int.hPos for int in int_list]
-		for i in range(1,len(previousInt)):
-			for j in range(0,i):
+		for i in range(1, len(previousInt)):
+			for j in range(0, i):
 				if int_list[i].hPos < int_list[j].hPos:
-					previousInt[j] = previousInt[j]+int_list[i].numBases		
+					previousInt[j] = previousInt[j] + int_list[i].numBases		
 		return previousInt
 		
 	def adjustedStopStart(self,int_list): 
 		"""Makes a list of the coordinates of the viral integrations adjusted with insertions added"""
-			
+		pdb.set_trace()
 		intCoords = [(int.hstart,int.hstop) for int in int_list]
-
-		for i in range(0,len(intCoords)):
-
-
-			for j in range(0,i):
+		
+		# consider all pairs of integrations
+		# loop over integrations
+		for i in range(0, len(intCoords)):
+			
+			# loop over integrations prior to this one
+			for j in range(0, i):
 
 				#consider if an integration site was moved due to an overlap 
 				if int_list[i].newpoint > -1: 
@@ -1307,7 +1345,6 @@ class Statistics:
 				else: 
 					i_site = intCoords[i][0] 
 
-			
 				#consider if an integration site was moved due to an overlap 
 				if int_list[j].newpoint > -1: 
 					j_site = intCoords[j][0] 
@@ -1318,8 +1355,8 @@ class Statistics:
 				if i_site < j_site:
 					#if an integration has an overlap we don't want the indexing to be adjusted for these bases 
 					if int_list[i].overlaps[0] < 0 or  int_list[i].overlaps[1] < 0:
+					
 						#handle overlap on left 
-
 						if int_list[i].overlaps[0]<0: 
 							shift = abs(int_list[i].overlaps[0])
 						#handle overlap on the right 
@@ -1327,18 +1364,18 @@ class Statistics:
 							shift = abs(int_list[i].overlaps[1]) 
 
 						#start coordinate of the integration 
-						new_coord1 = intCoords[j][0]+int_list[i].numBases 
+						new_coord1 = intCoords[j][0] + int_list[i].numBases 
 						#stop coordinate of the integraton 
-						new_coord2 = intCoords[j][1]+int_list[i].numBases 
-						intCoords[j] = (new_coord1,new_coord2)
+						new_coord2 = intCoords[j][1] + int_list[i].numBases 
+						intCoords[j] = (new_coord1, new_coord2)
 	 
 						
 					else: 
 						#start coordinate of the integration 
-						new_coord1 = intCoords[j][0]+int_list[i].numBases
+						new_coord1 = intCoords[j][0] + int_list[i].numBases
 						#stop coordinate of the integration  
-						new_coord2 = intCoords[j][1]+int_list[i].numBases 
-						intCoords[j] = (new_coord1,new_coord2)
+						new_coord2 = intCoords[j][1] + int_list[i].numBases 
+						intCoords[j] = (new_coord1, new_coord2)
 
 		#adjust intCoords for differences in indexing
 		for i in range(len(intCoords)): 
@@ -1610,6 +1647,11 @@ class Episome:
  
 		return host 
  
+ 
+class CannotPlaceIntError(Exception):
+   """Raised when there have been too many attempts to place an integration"""
+   pass
+
 
 if __name__ == "__main__":
 	main(sys.argv[1:])
