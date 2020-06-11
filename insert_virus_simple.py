@@ -166,20 +166,29 @@ class Integrations(list):
 		Note that all co-orindates are 0-based
 		 - chr: host chromosome on which integration occurs
 		 - hPos: position in the original host fasta at which integration occurs
-		 - hStart: start position in host chromosome, accounting for any previous integrations
-		 - hStop: stop potion in the host chromosome, accounting for any previous integrations
+		 - hStart: start position of viral bases in host chromosome, accounting for any previous integrations
+		 - hStop: stop position of viral bases in the host chromosome, accounting for any previous integrations
 		 - virus: name of integrated virus
 		 - viral breakpoints: a comma separated list of viral breakpoints which together indicate the integrated bases
 			adjacent pairs of breakpoints indicate portions of the virus that have been integrated
 		 - vOris: orientation (+ or -) of each portion of the virus that was integrated
 		"""
+		# dictionary will keep track of the number of bases previously integrated on each chromosome
+		previous_ints = {key:0 for key in self.host.keys()}
+		
 		self.sort()
 		with open(filename, 'w', newline='') as csvfile:
 			intwriter = csv.writer(csvfile, delimiter = '\t')
-			intwriter.writerow(['chr', 'hPos', 'hStart', 'hStop', 'virus', 'vBreakpoints', 'vOris'])
-			for integration in self:
-				hStart = 0 # TODO - adjust integration.pos for previous integrations
-				hStop = 0 # TODO - adjust integration.pos for previous integrations
+			intwriter.writerow(['chr', 'hPos', 'intStart', 'intStop', 'virus', 'vBreakpoints', 'vOris'])
+			for i, integration in enumerate(self):
+				
+				# calculate start and stop position for this integration
+				hStart = integration.pos + previous_ints[integration.chr] + 1
+				hStop = hStart + len(integration.chunk.bases) - 1
+				
+				# update previous_ints
+				previous_ints[integration.chr] += len(integration.chunk.bases)
+
 				breakpoints = ",".join([str(i) for i in integration.chunk.breakpoints])
 				oris = ",".join(integration.chunk.oris)
 				intwriter.writerow([integration.chr, 
@@ -189,7 +198,7 @@ class Integrations(list):
 									integration.chunk.virus,
 									breakpoints,
 									oris])
-		
+	
 	def __str__(self):
 		return f"Viral integrations object with {len(self)} integrations of viral sequences {list(self.virus.keys())} into host chromosomes {list(self.host.keys())}"
 
