@@ -60,7 +60,7 @@ def main(argv):
 	parser.add_argument('--int_rearrange', help = 'specify if rearrangements should be conducted on none, some or all integrations [some]', required=False, default='rand', type=str)
 	parser.add_argument('--set_junc', help = 'specify is a particular type of junctions are wanted from: clean, gap, overlap or rand [rand]', required=False, default='rand', type=str, choices=int_junc_types)
 	parser.add_argument('--seed', help = 'seed for random number generator', required=False, default=1, type=int)
-	parser.add_argument('--verbose', help = 'display extra output for debugging', required=False, default=False, type=bool)
+	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
 	args = parser.parse_args()
 	
 	#read host fasta - use index which doesn't load sequences into memory because host is large genome
@@ -133,6 +133,7 @@ def main(argv):
 	
 	#list to store integration objects
 	host_ints = []
+	
 	#dictionary to  store sequences with integrations
 	host_fasta = {key:value for key, value in zip(host.keys(), host.values())}
 	
@@ -1357,7 +1358,7 @@ class Statistics:
 					if int_list[i].overlaps[0] < 0 or  int_list[i].overlaps[1] < 0:
 					
 						#handle overlap on left 
-						if int_list[i].overlaps[0]<0: 
+						if int_list[i].overlaps[0] < 0: 
 							shift = abs(int_list[i].overlaps[0])
 						#handle overlap on the right 
 						else: 
@@ -1380,13 +1381,17 @@ class Statistics:
 		#adjust intCoords for differences in indexing
 		for i in range(len(intCoords)): 
 			(c1, c2) = intCoords[i]
-			intCoords[i] = (c1, c2 - 1) 
+			intCoords[i] = (c1, c2 - 1) # 1-based numbering?
  		
 			
 		return intCoords
 
 	def integratedIndices(int_list): 
 		"""Creates a lisit of sequence indexes which are of viral origin""" 
+		# get set of host chromosomes which contain integrations
+		pdb.set_trace()
+		integrated_chrs = {}
+		
 		#create list of viral coordinates 		
 		viral_idx = []
 		
