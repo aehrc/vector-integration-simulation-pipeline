@@ -9,6 +9,7 @@ import sys
 import os
 import numpy as np
 import pdb 
+import csv
 
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
@@ -21,8 +22,7 @@ def main(argv):
 	parser.add_argument('--host', help='host fasta file', required = True, type=str)
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
 	parser.add_argument('--ints', help = 'output fasta file', required = True, type=str)
-	parser.add_argument('--locs', help = 'output text with viral integrations', required = True, type=str)
-	parser.add_argument('--locs_host', help = 'output csv with integration locations in host genome', required = True, type=str)
+	parser.add_argument('--info', help = 'output tsv with info about viral integrations', required = True, type=str)
 	parser.add_argument('--int_num', help = 'number of integrations to be carried out [5]', required=True, type=int, default=5)
 	parser.add_argument('--seed', help = 'seed for random number generator', required=False, default=1, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
@@ -86,12 +86,15 @@ def main(argv):
 	ints.sort()
 	[print(f"{ints[i]}") for i in range(len(ints))]
 	
-	print("\nchecking saving a fasta:")
+	print("")
 	if args.verbose is True:
 		print(f"saving host fasta with integrations to {args.ints}")
 	ints.save_fasta(args.ints)
 	
-			
+	if args.verbose is True:
+		print(f"saving information about integrations to {args.info}")
+	ints.save_info(args.info)
+	
 
 def checkFastaExists(file):
 	#check file exists
@@ -129,14 +132,14 @@ class Integrations(list):
 			assert type in self.types
 			
 		# make an integration
-		int = Integration(self.host, self.virus, type)
+		integration = Integration(self.host, self.virus, type)
 		
 		# append integration to self.ints
-		self.append(int)
+		self.append(integration)
 		
 	def save_fasta(self, filename):
 		"""
-		Save all integrations to a fasta file
+		Save host fasta with integrated viral bases to a fasta file
 		"""
 		
 		with open(filename, "w+") as handle:
@@ -148,17 +151,44 @@ class Integrations(list):
 				position = 0
 				
 				# loop over sorted integrations in this chromosome
-				for int in sorted([int for int in self if int.chr == chr]):
+				for integration in sorted([integration for integration in self if integration.chr == chr]):
 					# write host bases before this integration
-					handle.write(str(self.host[chr].seq[position:int.pos]))
+					handle.write(str(self.host[chr].seq[position:integration.pos]))
 					# write integrated viral bases
-					handle.write(int.chunk.bases)
+					handle.write(integration.chunk.bases)
 					# update positon
-					position = int.pos
+					position = integration.pos
 				handle.write("\n")
 		
-		
-		
+	def save_info(self, filename):
+		"""
+		Output the following info for each integration (one integration per line) into a tab-separated file:
+		Note that all co-orindates are 0-based
+		 - chr: host chromosome on which integration occurs
+		 - hPos: position in the original host fasta at which integration occurs
+		 - hStart: start position in host chromosome, accounting for any previous integrations
+		 - hStop: stop potion in the host chromosome, accounting for any previous integrations
+		 - virus: name of integrated virus
+		 - viral breakpoints: a comma separated list of viral breakpoints which together indicate the integrated bases
+			adjacent pairs of breakpoints indicate portions of the virus that have been integrated
+		 - vOris: orientation (+ or -) of each portion of the virus that was integrated
+		"""
+		self.sort()
+		with open(filename, 'w', newline='') as csvfile:
+			intwriter = csv.writer(csvfile, delimiter = '\t')
+			intwriter.writerow(['chr', 'hPos', 'hStart', 'hStop', 'virus', 'vBreakpoints', 'vOris'])
+			for integration in self:
+				hStart = 0 # TODO - adjust integration.pos for previous integrations
+				hStop = 0 # TODO - adjust integration.pos for previous integrations
+				breakpoints = ",".join([str(i) for i in integration.chunk.breakpoints])
+				oris = ",".join(integration.chunk.oris)
+				intwriter.writerow([integration.chr, 
+									integration.pos, 
+									hStart, 
+									hStop, 
+									integration.chunk.virus,
+									breakpoints,
+									oris])
 		
 	def __str__(self):
 		return f"Viral integrations object with {len(self)} integrations of viral sequences {list(self.virus.keys())} into host chromosomes {list(self.host.keys())}"
@@ -212,21 +242,28 @@ class Integration:
 		
 		# first check chromosome name
 		assert isinstance(self.chr, str) and isinstance(other.chr, str)
-		if self.chr > other.chr:
-			return False
-		
-		# then check position
 		assert isinstance(self.pos, int) and isinstance(other.pos, int)
-		if self.pos > other.pos:
-			return False
 		
-		# if not false, then true
-		return True
+		return (self.chr.lower(), self.pos) < (other.chr.lower(), other.pos)
+		
+	def __eq__(self, other):
+		"""
+		Integrations can be ranked by both chromosome name and position on that chromosome
+		"""
+		# make sure that we're comparing with another integration
+		assert isinstance(other, Integration)
+		
+		# first check chromosome name
+		assert isinstance(self.chr, str) and isinstance(other.chr, str)
+		assert isinstance(self.pos, int) and isinstance(other.pos, int)
+		
+		return (self.chr.lower(), self.pos) == (other.chr.lower(), other.pos)
+
 	
 class ViralChunk:
 	"""
 	Class to store properties of an integrated chunk of virus
-	"""	
+	"""
 	
 	def __init__(self, virus, type):
 		"""
@@ -249,12 +286,25 @@ class ViralChunk:
 			self.start = np.random.randint(0, len(virus[self.virus].seq) -1)
 			self.stop = np.random.randint(self.start + 1, len(virus[self.virus].seq))
 			
+		# get a random orientation
+		self.oris = [np.random.choice(('+', '-'))]
+			
+		# set breakpoints
+		self.breakpoints = (self.start, self.stop)
+		
 		# get integrated bases
-		self.bases = str(virus[self.virus].seq[self.start:self.stop])
-			
-			
+		self.bases = ""
+		for i in range(len(self.breakpoints) - 1):
+			start = self.breakpoints[i]
+			stop = self.breakpoints[i + 1]
+			if self.oris[i] == '+':
+				self.bases = self.bases + str(virus[self.virus].seq[start:stop])
+			else:
+				self.bases = self.bases + str(virus[self.virus].seq[start:stop].reverse_complement())
+		
+	
 	def __str__(self):
-		return f"Viral chunk of virus {self.virus} ({self.start}, {self.stop}) with type '{self.type}'"
+		return f"Viral chunk of virus {self.virus} ({self.start}, {self.stop}) with type '{self.type}' and orientations {self.oris}"
 		
 	def __repr__(self):
 		return f"Object of type ViralChunk with properties {self}"
