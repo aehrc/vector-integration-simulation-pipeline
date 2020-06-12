@@ -14,19 +14,25 @@ import csv
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
 int_virus_portions = ['whole', 'portion'] # possible portions of the virus to be integrated
-int_junc_types = ['clean']
+int_junc_types = ['clean', 'gap']
+int_junc_random_types = ['clean', 'gap'] # if an integration is one of these types, the position in the chromosome is random
+
 
 def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--host', help='host fasta file', required = True, type=str)
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
-	parser.add_argument('--ints', help = 'output fasta file', required = True, type=str)
-	parser.add_argument('--info', help = 'output tsv with info about viral integrations', required = True, type=str)
-	parser.add_argument('--int_num', help = 'number of integrations to be carried out [5]', required=True, type=int, default=5)
-	parser.add_argument('--seed', help = 'seed for random number generator', required=False, default=1, type=int)
+	parser.add_argument('--ints', help = 'output fasta file', type=str, default="integrations.fa")
+	parser.add_argument('--info', help = 'output tsv with info about viral integrations', type=str, default="integrations.tsv")
+	parser.add_argument('--int_num', help = 'number of integrations to be carried out [5]', type=int, default=5)
+	#parser.add_argument('--p_whole', help = 'probability of a virus being integrated completely', type = float, default=0.3) #TODO
+	#parser.add_argument('--p_rearrange', help='probability of an integrated piece of virus being rearranged', type=float, default=0.01) #TODO
+	#parser.add_argument('--p_delete', help='probability of an integrated piece of virus containing a deletion', type=float, default=0.01) #TODO
+	parser.add_argument('--seed', help = 'seed for random number generator', default=1, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
 	args = parser.parse_args()
+	
 	
 	
 	if args.verbose is True:
@@ -63,28 +69,15 @@ def main(argv):
 	np.random.seed(args.seed)
 			
 	# initialise integrations object
+	if args.verbose is True:
+		print("initialising a new Integrations object")
 	ints = Integrations(host, virus, int_virus_portions)
-	ints.add_integration()
 	
-	print("checking one integration")
-	print(ints)
-	print(ints[0])
-	print(ints[0].chunk)
-	print(len(ints))
-	
-	print("\nchecking two integrations")
-	ints.add_integration()
-	print(ints)
-	print(ints[1])
-	print(f"integration 0 more than integration 1: {ints[0] > ints[1]}")
-	print(f"integration 1 more than integration 0: {ints[1] > ints[0]}")
-	
-	print("\nchecking sorting")
-	ints.add_integration()
-	ints.add_integration()
-	ints.add_integration()
-	ints.sort()
-	[print(f"{ints[i]}") for i in range(len(ints))]
+	# do desired number of integrations
+	if args.verbose is True:
+		print(f"performing {args.int_num} integrations")
+	for i in range(args.int_num):
+		ints.add_integration(type = "rand")
 	
 	print("")
 	if args.verbose is True:
@@ -134,14 +127,17 @@ class Integrations(list):
 		# make an integration
 		integration = Integration(self.host, self.virus, type)
 		
-		# append integration to self.ints
-		self.append(integration)
+		# append to self if nothing went wrong with this integration
+		if integration.chunk.pieces is not None:
+			if integration.pos is not None:
+				self.append(integration)
+		
+
 		
 	def save_fasta(self, filename):
 		"""
 		Save host fasta with integrated viral bases to a fasta file
 		"""
-		
 		with open(filename, "w+") as handle:
 			# loop over chromosomes
 			for chr in self.host.keys():
@@ -150,14 +146,24 @@ class Integrations(list):
 				handle.write(f">{chr}\n")
 				position = 0
 				
+				# get integrations on this chromosome
+				ints_on_this_chr = [integration for integration in self if integration.chr == chr]
+				
+				# if there are no integrations on this chromosome, just write the host bases
+				if len(ints_on_this_chr) == 0:
+					handle.write(str(self.host[chr].seq))
+				
 				# loop over sorted integrations in this chromosome
-				for integration in sorted([integration for integration in self if integration.chr == chr]):
-					# write host bases before this integration
-					handle.write(str(self.host[chr].seq[position:integration.pos]))
-					# write integrated viral bases
-					handle.write(integration.chunk.bases)
-					# update positon
-					position = integration.pos
+				else:
+					for integration in sorted(ints_on_this_chr):
+						# write host bases before this integration
+						handle.write(str(self.host[chr].seq[position:integration.pos]))
+						# write integrated viral bases
+						handle.write(integration.chunk.bases)
+						# update positon
+						position = integration.pos
+				# write the final bases of the chromosome
+				handle.write(str(self.host[chr].seq[position:]))
 				handle.write("\n")
 		
 	def save_info(self, filename):
@@ -189,7 +195,7 @@ class Integrations(list):
 				# update previous_ints
 				previous_ints[integration.chr] += len(integration.chunk.bases)
 
-				breakpoints = ",".join([str(i) for i in integration.chunk.breakpoints])
+				breakpoints = ",".join([str(i) for i in integration.chunk.pieces])
 				oris = ",".join(integration.chunk.oris)
 				intwriter.writerow([integration.chr, 
 									integration.pos, 
@@ -211,28 +217,51 @@ class Integration:
 	"""
 	Class to store the properties of an individual integration
 	"""
-	def __init__(self, host, virus, type):
+	def __init__(self, host, virus, portionType = 'whole', overlapTypes = ('clean', 'clean')):
 		"""
 		Function to initialise Integration object
+		portionType is 'whole' or 'portion' - the part of the virus that has been inserted
+		overlapType is two-member tuple of 'clean', 'gap' or 'overlap' - defines the junction at each end of the integration
 		"""
 		# check inputs
 		assert isinstance(virus, dict)
-		assert type in int_virus_portions
+		assert portionType in int_virus_portions
 	
 		# get random chromosome on which to do insertion
 		self.chr = np.random.choice(list(host.keys()))
-	
-		# get random position at which to insert
-		self.pos = np.random.randint(1, len(host[self.chr].seq))
-		
-		# assign type
-		self.type = type
 		
 		# get viral chunk
-		self.chunk = ViralChunk(virus, type)
+		assert portionType in int_virus_portions
+		chunk = ViralChunk(virus, portionType)
 		
-		# check viral type
-		assert self.chunk.type == self.type
+		# chunk.virus is assigned None if something went wrong with the initialisation
+		if chunk.virus is not None:
+			self.chunk = ViralChunk(virus, portionType)
+		else:
+			self.pos = None
+			return
+		assert self.chunk.pieces is not None
+		assert self.chunk.type == portionType
+		
+		# assign portionType
+		self.portionType = portionType
+		
+		# set overlap types
+		assert isinstance(overlapTypes, tuple)
+		assert len(overlapTypes) == 2
+		assert all([True if (i in int_junc_types) else False for i in overlapTypes])
+		self.overlapTypes = overlapTypes
+		
+		# get a position at which to integrate
+		self.get_int_position(len(host[self.chr].seq), self.overlapTypes[0], self.overlapTypes[1])
+		
+	def get_int_position(self, chr_len, left_overlap, right_overlap,):
+		"""
+		get a position at which to perform the integration
+		"""
+		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
+		if all([True if (i in int_junc_random_types) else False for i in self.overlapTypes]):
+			self.pos = np.random.randint(chr_len)
 		
 		
 	def __str__(self):
@@ -274,9 +303,20 @@ class ViralChunk:
 	Class to store properties of an integrated chunk of virus
 	"""
 	
-	def __init__(self, virus, type):
+	def __init__(self, virus, type, deletion=True, rearrange=True, lambda_poisson = 1.5):
 		"""
 		function to get a chunk of a virus
+		virus is the dictionary of seqrecords imported using biopython
+		type specifies if we want the 'whole' virus, or just a 'portion'
+		
+		a viral chunk can be subdivided into smaller pieces if we want
+		a deletion or a rearrangement.  if deletion is true, the chunk
+		will be subdivided into at least three pieces and one of the middle ones
+		will be deleted
+		if rearrange is True, the chunk will be subdivided into at least two pieces
+		and they will be randomly shuffled
+
+		
 		"""
 		# check inputs
 		assert isinstance(virus, dict)
@@ -295,21 +335,195 @@ class ViralChunk:
 			self.start = np.random.randint(0, len(virus[self.virus].seq) -1)
 			self.stop = np.random.randint(self.start + 1, len(virus[self.virus].seq))
 			
-		# get a random orientation
-		self.oris = [np.random.choice(('+', '-'))]
-			
-		# set breakpoints
-		self.breakpoints = (self.start, self.stop)
+		# breakpoints are the start and stop coordinates of pieces of the virus that have been 
+		# integrated
 		
+		# set breakpoints
+		self.pieces = ((self.start, self.stop),)
+		
+		self.oris = np.random.choice(('+', '-'))
+		
+		# do a deletion if applicable
+		if deletion is True:
+			self.__delete(lambda_poisson)
+			# if something went wrong, breakpoints will be None
+			if self.pieces is None:
+				return
+				
+		if rearrange is True:
+			self.__rearrange(lambda_poisson)
+			# if something went wrong, breakpoints will be None
+			if self.pieces is None:
+				return
+		
+		# get bases
+		self.bases = self.__get_bases(virus)
+				
+	def __get_bases(self, virus):
+		"""
+		return bases of viral chunk as a string
+		note that objects of class ViralChunk do not store the whole viral sequence, so 
+		need to provide this in order to get the bases
+		"""
+		bases = []
 		# get integrated bases
-		self.bases = ""
-		for i in range(len(self.breakpoints) - 1):
-			start = self.breakpoints[i]
-			stop = self.breakpoints[i + 1]
+		for i, points in enumerate(self.pieces):
+			start = points[0]
+			stop = points[1]
 			if self.oris[i] == '+':
-				self.bases = self.bases + str(virus[self.virus].seq[start:stop])
+				bases += [str(virus[self.virus].seq[start:stop])]
 			else:
-				self.bases = self.bases + str(virus[self.virus].seq[start:stop].reverse_complement())
+				bases += [str(virus[self.virus].seq[start:stop].reverse_complement())]
+		return "".join(bases)
+		
+	def __get_poisson_with_minimum_and_maximum(self, lambda_poisson, minimum = -np.inf, maximum = np.inf):
+		"""
+		A recurring task is to get an integer from the poisson distriubtion that is at least
+		a minimum number
+		"""
+		# make sure minimum is less than or equal to maximum
+		assert maximum >= minimum
+		
+		# if minimum and maximum are the same, just return 
+		if minimum == maximum:
+			return minimum
+		
+		# get number of pieces to divide chunk into
+		counter = 0
+		assert lambda_poisson > 1
+		while True:
+			# get a number from the poisson distrubtion
+			n = np.random.poisson(lambda_poisson)
+			# if it's more than the minimum, we're done
+			if n >= minimum and n <= maximum:
+				return n
+			counter += 1
+			# after too many tries, give up
+			if counter > max_attempts:
+				self.pieces = None
+				return
+		# if something went wrong and we ended up here, just set self.pieces to None
+		# and return
+		self.pieces = None
+		return 0
+		
+	def __get_unique_list(self, start, stop, num = 1):
+		"""
+		get a random list of num integers between start and stop, with no repeats
+		"""
+		# make sure that we're not trying to get more numbers than is possible
+		assert isinstance(start, int) and isinstance(stop, int) and isinstance(num, int)
+		assert num <= (stop - start)
+		
+		return np.random.choice(range(start, stop), num, replace = False)
+					
+		
+	def __split_into_pieces(self, lambda_poisson, min_pieces = 2):
+		"""
+		get random, unique breakpoints to divide a viral chunk into pieces
+		there must be at least min_breakpoints, which results in min_breakpoints + 1 pieces 
+		this is a list of coordinates, not tuples (unlike self.pieces)
+		"""
+		# shouldn't do this if this chunk has already been split
+		assert len(self.pieces) == 1
+		assert len(self.oris) == 1
+		
+		# check that we're not trying to divide a chunk into more pieces than there are bases
+		if min_pieces >= self.stop - self.start:
+			self.pieces = None
+			return
+		
+		# get the number of pieces to divide into
+		num_breakpoints = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = min_pieces - 1)
+		if num_breakpoints == 0:
+			self.pieces = None
+			return
+				
+		# get random breakpoints from within this chunk
+		breakpoints = self.__get_unique_list(self.start + 1, self.stop - 1, num_breakpoints)
+				
+		# set self.pieces
+		breakpoints = [self.start] + sorted(breakpoints) + [self.stop]
+		self.pieces = [(breakpoints[i], breakpoints[i+1]) for i in range(len(breakpoints) - 1)]
+		
+		# set self.oris
+		
+		self.oris = [self.oris[0]] * len(self.pieces)
+		return	
+		
+	def __swap_orientations(self, breakpoint, side = 'left'):
+		"""
+		Given a breakpoint, swap all of the orientations (+ to - or vice versa) for all of the pieces
+		on the left or right of this breakpoint
+		"""
+		if side == 'left':
+			for i, ori in self.oris[:breakpoint]:
+				if ori == "+":
+					self.oris[i] = "-"
+				else:
+					self.oris[i] = "+"
+		else:
+			for i, ori in self.oris[breakpoint:]:
+				if ori == "+":
+					self.oris[i] = "-"
+				else:
+					self.oris[i] = "+"
+			
+			
+	
+	def __delete(self, lambda_poisson):
+		"""
+		Divide a viral chunk up into multiple pieces
+		and remove one of those pieces
+		"""
+		# deletions are always performed first, so the chunk should not have been split yet
+		assert len(self.pieces) == 1
+
+		# split chunk into at least three pieces
+		self.__split_into_pieces(lambda_poisson, min_pieces = 3)
+		if self.pieces is None:
+			return
+			
+		# decide how many portions to delete - the maximum is the length of self.pieces - 2
+		max_delete = len(self.pieces) - 2
+		n_delete = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 0, maximum = max_delete)
+		
+		# decide which portions to delete
+		i_delete = self.__get_unique_list(1, len(self.pieces) - 1, n_delete)
+		
+		# do deletion
+		self.pieces = [piece for i, piece in enumerate(self.pieces) if i not in i_delete]
+		self.oris = [ori for i, ori in enumerate(self.oris) if i not in i_delete]	
+		
+	def __rearrange(self, lambda_poisson):
+		"""
+		Divide a viral chunk up into multiple pieces
+		and randomise their order and orientiations
+		"""
+		pdb.set_trace()
+		# split the chunk if it hasn't already been split
+		if len(self.pieces) == 1:
+			# split chunk into at least three pieces
+			self.__split_into_pieces(lambda_poisson, min_pieces = 2)
+			if self.pieces is None:
+				return
+			
+		# decide how many swaps to make
+		n_swap = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 1)
+		
+		for i in range(n_swap):
+			# pick a point about which to swap
+			i_swap = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 1, maximum = len(self.pieces) - 1)
+			
+			# swap everything to the left of this position with everything on the right
+			self.pieces = self.pieces[i_swap:] + self.pieces[:i_swap]
+			
+			# 50 % chance of swapping the orientations of all the pieces for each side
+			if np.random.choice((True, False)) is True:
+				self.__swap_orientations(self, i_swap, side = 'left')
+			if np.random.choice((True, False)) is True:
+				self.__swap_orientations(self, i_swap, side = 'right')
+
 		
 	
 	def __str__(self):
