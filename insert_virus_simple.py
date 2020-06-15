@@ -14,8 +14,17 @@ import csv
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
 int_virus_portions = ['whole', 'portion'] # possible portions of the virus to be integrated
-int_junc_types = ['clean', 'gap']
-int_junc_random_types = ['clean', 'gap'] # if an integration is one of these types, the position in the chromosome is random
+int_junc_types = ['clean', 'gap', 'overlap']
+
+default_ints = 5
+
+default_p_whole = 0.3
+default_p_rearrange = 0.05
+default_p_delete = 0.05
+default_lambda_split = 1.5
+default_p_overlap = 0.3
+default_p_gap = 0.3
+default_lambda_junction = 3
 
 
 def main(argv):
@@ -25,16 +34,20 @@ def main(argv):
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
 	parser.add_argument('--ints', help = 'output fasta file', type=str, default="integrations.fa")
 	parser.add_argument('--info', help = 'output tsv with info about viral integrations', type=str, default="integrations.tsv")
-	parser.add_argument('--int_num', help = 'number of integrations to be carried out [5]', type=int, default=5)
-	#parser.add_argument('--p_whole', help = 'probability of a virus being integrated completely', type = float, default=0.3) #TODO
-	#parser.add_argument('--p_rearrange', help='probability of an integrated piece of virus being rearranged', type=float, default=0.01) #TODO
-	#parser.add_argument('--p_delete', help='probability of an integrated piece of virus containing a deletion', type=float, default=0.01) #TODO
-	parser.add_argument('--seed', help = 'seed for random number generator', default=1, type=int)
+	parser.add_argument('--int_num', help = f"number of integrations to be carried out [{default_ints}]", type=int, default=default_ints)
+	parser.add_argument('--p_whole', help = f"probability of a virus being integrated completely [{default_p_whole}]", type = float, default=default_p_whole) 
+	parser.add_argument('--p_rearrange', help=f"probability of an integrated piece of virus being rearranged [{default_p_rearrange}]", type=float, default=default_p_rearrange) 
+	parser.add_argument('--p_delete', help=f"probability of an integrated piece of virus containing a deletion [{default_p_delete}]", type=float, default=default_p_delete) 
+	parser.add_argument('--lambda_split', help = f"mean of poisson distriubtion for number of pieces to split an integrated viral chunk into when rearranging or deleting [{default_lambda_split}]", type=float, default=default_lambda_split)
+	parser.add_argument('--p_overlap', help=f"probability of a junction to be overlapped (common bases between virus and host) [{default_p_overlap}]", type=float, default=default_p_overlap) 
+	parser.add_argument('--p_gap', help=f"probability of a junction to have a gap [{default_p_gap}]", type=float, default=default_p_gap) 
+	parser.add_argument('--lambda_junction', help = f"mean of possion distribution of number of bases in a gap/overlap [{default_lambda_junction}]", type=float, default=default_lambda_junction)
+	parser.add_argument('--seed', help = 'seed for random number generator', default=12345, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
 	args = parser.parse_args()
 	
 	
-	
+	#### check and import fasta files ####
 	if args.verbose is True:
 		print("importing host fasta")
 	
@@ -64,21 +77,37 @@ def main(argv):
 		virus_seqs = {key:len(virus[key]) for key in virus.keys()}
 		for key, length in virus_seqs.items():
 			print(f"\tviral sequence '{key}' with length {length}") 
-			
+	
+	#### generate integrations ####		
 	#set random seed
 	np.random.seed(args.seed)
+	
+	# generate dictionary of probabilities and lambda/means as input for Integrations class
+	probs = {'p_whole' 			: args.p_whole,
+			'p_rearrange' 		: args.p_rearrange,
+			'p_delete'			: args.p_delete,
+			'lambda_split'		: args.lambda_split,
+			'p_overlap' 		: args.p_overlap,
+			'p_gap' 			: args.p_gap,
+			'lambda_junction' 	: args.lambda_junction}
 			
 	# initialise integrations object
 	if args.verbose is True:
 		print("initialising a new Integrations object")
-	ints = Integrations(host, virus, int_virus_portions)
+	ints = Integrations(host, virus, probs, seed=args.seed)
 	
 	# do desired number of integrations
 	if args.verbose is True:
 		print(f"performing {args.int_num} integrations")
-	for i in range(args.int_num):
-		ints.add_integration(type = "rand")
+	counter = 0
+	while len(ints) < args.int_num:
+		if ints.add_integration() is False:
+			counter += 1
+		if counter > max_attempts:
+			raise valueError('too many failed attempts to add integrations')
 	
+	
+	#### save outputs ####
 	print("")
 	if args.verbose is True:
 		print(f"saving host fasta with integrations to {args.ints}")
@@ -104,35 +133,174 @@ def checkFastaExists(file):
 class Integrations(list):
 	"""
 	Class to store all integrations for a given host and virus
+	This class stores the sequences for the host and virus (dictionaries of biopython seqRecord objects)
+	And probabilities of each type of viral integration - whole/portion, rearrangement/deletion, gap/overlap, 
+	means of poisson distributions
+	
+	These probabilities and means are stored in a dictionary - probs, which must contain the following values:
+	
+	p_whole - probability of an integration being of the whole virus [0.3].  probability of a portion is 1-p_whole
+	
+	p_rearrange - probability of a chunk being rearranged
+	p_delete - probability of a chunk containing a deletion
+	(probability of neither a rearrangement or a deletion is 1 - (p_rearrange + p_delete) )
+	lambda_split - when splitting a chunk for a rearrangement or deletion, mean of the poission distribution for
+	number of pieces in which to split chunk
+	
+	p_overlap - probability of a junction to contain an overlap (common bases between virus and host)
+	p_gap - probability of a junction to contain a gap (random bases inserted between host and virus)
+	(probability of neither a rearrangement or a deletion is 1 - (p_overlap + p_gap) )
+	lambda_junction - mean of poisson distribution of number of bases involved in overlap or gap
+	
 	"""
-	def __init__(self, host, virus, int_types):
+	def __init__(self, host, virus, probs, seed = 12345, max_attempts=50):
 		"""
 		Function to initialise Integrations object
 		"""
 		# assign properties common to all integrations
 		self.host = host
 		self.virus = virus
-		self.int_types = int_types
+		self.probs = probs
+		self.rng = np.random.default_rng(seed)
 		
-	def add_integration(self, type = 'rand'):
-		"""
-		Add an integration
-		"""
-		# either get random type or check this this type is valid
-		if type == 'rand':
-			type = np.random.choice(self.int_types)
-		else:
-			assert type in self.types
+		# default values for probs
+		self.set_probs_default('p_whole', default_p_whole)
+		self.set_probs_default('p_rearrange', default_p_rearrange)
+		self.set_probs_default('p_delete', default_p_delete)
+		self.set_probs_default('lambda_split', default_lambda_split)
+		self.set_probs_default('p_overlap', default_p_overlap)
+		self.set_probs_default('p_gap', default_p_gap)
+		self.set_probs_default('lambda_junction', default_lambda_junction)		
 			
+		# check that probabilities are between 0 and 1
+		self.check_prob(self.probs['p_whole'], 'p_whole')
+		self.check_prob(self.probs['p_rearrange'] + self.probs['p_delete'], 'the sum of p_rearrange and p_delete')	
+		self.check_prob(self.probs['p_overlap'] + self.probs['p_gap'], 'the sum of p_overlap and p_gap')
+			
+		# check that lambda values are positive floats	
+		self.check_float_or_int_positive(self.probs['lambda_split'], 'lambda_split')
+		self.check_float_or_int_positive(self.probs['lambda_junction'], 'lambda_junction')
+	
+	def set_probs_default(self, key, default):
+		"""
+		check if a key is in the probs dictionary, and if not set it to a default
+		"""	
+		if key not in self.probs:
+			self.probs[key] = default
+	
+	def check_float_or_int_positive(self, value, name):
+		"""
+		Check that a value, with a name, is a positive float or int
+		"""
+		if not isinstance(value, float) and not isinstance(value, int):
+			raise ValueError(f"{name} must be a float (it's currently {type(value)})")
+		if value <= 0:
+			raise ValueError(f"{name} must be greater than zero (it's currently {value})")	
+			
+	def check_prob(self, value, name):
+		"""
+		Check that a value, with a name, is a valid probability (float between 0 and 1):
+		"""
+		if not isinstance(value, float):
+			raise ValueError(f"{name} must be a float (it's currently {type(value)})")
+		if value < 0 or value > 1:
+			raise ValueError(f"{name} must be between 0 and 1")	
+			
+	def poisson_with_minimum_and_maximum(self, lambda_poisson, min=-np.inf, max=np.inf):
+		"""
+		get an integer from the poisson distribution with the specified lambda
+		with a minimum value 
+		"""
+		assert max >= min
+			
+		if min == max:
+			return min
+			
+		counter = 0
+		while True:
+			n = self.rng.poisson(lam = lambda_poisson)
+			if n >= min and n <= max:
+				return n
+			counter += 1
+			if counter > self.max_attempts:
+				return None
+					
+	def add_integration(self):
+		"""
+		Add an integration by appending an Integration object to self.  
+		Decide the properties of the integration using the 'probs' dict
+		"""
+		
+		# get if integration should be whole or portion
+		p_portion =  1 - self.probs['p_whole']
+		is_whole = self.rng.choice(a = [True, False], p = [self.probs['p_whole'], p_portion]) 
+		
+		# get if integration should be rearranged
+		p_not_rearrange = 1 - self.probs['p_rearrange']
+		is_rearrange = self.rng.choice(a = [True, False], p = [self.probs['p_rearrange'], p_not_rearrange]) 
+			
+		
+		# get if integration should contain deletion
+		p_not_delete = 1 - self.probs['p_delete']
+		is_delete = self.rng.choice(a = [True, False], p = [self.probs['p_delete'], p_not_delete])
+		
+		# get number of fragments - ignored if both isDelete and isRearrange are both False
+		
+		# must have at least two pieces for a rearrangment, or three for a deletion
+		min_split = 0
+		if is_rearrange is True:
+			min_split = 2
+		if is_delete is True:
+			min_split = 3
+		
+		n_fragments = self.poisson_with_minimum_and_maximum(self.probs['lambda_split'], min = min_split)
+		if n_fragments is None:
+			return
+		assert n_fragments >= 0 
+		
+		# if we're doing a deletion, get the number of fragments to delete
+		if is_delete is True:
+			n_delete = self.rng.choice(range(0, n_fragments - 1))
+		else:
+			n_delete = 0
+			
+		# if we're doing a rearrangement, get the number of swaps to make
+		if is_rearrange is True:
+			n_swaps = self.poisson_with_minimum_and_maximum(self.probs['lambda_split'], min = 1)
+		else:
+			n_swaps = 0
+				
+		# get type of left junction
+		p_clean = 1 - self.probs['p_overlap'] - self.probs['p_gap']
+		prob_juncs = [self.probs['p_overlap'], self.probs['p_gap'], p_clean]
+		junc_types = self.rng.choice(a = ['overlap', 'gap', 'clean'], size = 2, p = prob_juncs)
+				
+		# get number of bases in left overlap or gap
+		n_left_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 0)
+		n_right_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 0)
+		if n_left_junc is None or n_right_junc is None:
+			return
+		
 		# make an integration
-		integration = Integration(self.host, self.virus, type)
+		integration = Integration(self.host, 
+								  self.virus,
+								  is_whole = is_whole,
+								  is_rearrange = is_rearrange,
+								  n_swaps = n_swaps,
+								  is_delete = is_delete,
+								  n_delete = n_delete,
+								  n_fragments = n_fragments,
+								  junc_types = list(junc_types),
+								  n_juncs = (n_left_junc, n_right_junc)
+								  )
 		
 		# append to self if nothing went wrong with this integration
 		if integration.chunk.pieces is not None:
 			if integration.pos is not None:
 				self.append(integration)
-		
-
+				return True
+				
+		return False	
 		
 	def save_fasta(self, filename):
 		"""
@@ -156,10 +324,17 @@ class Integrations(list):
 				# loop over sorted integrations in this chromosome
 				else:
 					for integration in sorted(ints_on_this_chr):
+						assert integration.pos is not None
 						# write host bases before this integration
 						handle.write(str(self.host[chr].seq[position:integration.pos]))
+						# write left gap if relevant
+						if integration.junc_types[0] == 'gap':
+							handle.write(integration.junc_bases[0])
 						# write integrated viral bases
 						handle.write(integration.chunk.bases)
+						# write right gap if relevant
+						if integration.junc_types[1] == 'gap':
+							handle.write(integration.junc_bases[1])
 						# update positon
 						position = integration.pos
 				# write the final bases of the chromosome
@@ -171,40 +346,69 @@ class Integrations(list):
 		Output the following info for each integration (one integration per line) into a tab-separated file:
 		Note that all co-orindates are 0-based
 		 - chr: host chromosome on which integration occurs
-		 - hPos: position in the original host fasta at which integration occurs
-		 - hStart: start position of viral bases in host chromosome, accounting for any previous integrations
-		 - hStop: stop position of viral bases in the host chromosome, accounting for any previous integrations
+		 - hPos: 0-based position in the original host fasta at which integration occurs
+		 	(relative to input fasta)
+		 - intStart: position of the ambiguous bases (gap, overlap or clean junction) on left side,
+		 	in final output fasta (accounting for any previous integrations)
+		 - intStop: position of the ambiguous bases (gap, overlap or clean junction) on left side
+		 	in final output fasta (accounting for any previous integrations)
+		 - hDeleted: number of bases deleted from host chromosome
 		 - virus: name of integrated virus
 		 - viral breakpoints: a comma separated list of viral breakpoints which together indicate the integrated bases
 			adjacent pairs of breakpoints indicate portions of the virus that have been integrated
 		 - vOris: orientation (+ or -) of each portion of the virus that was integrated
+		 - juncTypes: types (gap, overlap, clean) of left and right junctions, respectively
+		 - juncBases: bases at left and right junctions, respectively
 		"""
 		# dictionary will keep track of the number of bases previously integrated on each chromosome
 		previous_ints = {key:0 for key in self.host.keys()}
+		deleted_bases = {key:0 for key in self.host.keys()}
 		
 		self.sort()
 		with open(filename, 'w', newline='') as csvfile:
 			intwriter = csv.writer(csvfile, delimiter = '\t')
-			intwriter.writerow(['chr', 'hPos', 'intStart', 'intStop', 'virus', 'vBreakpoints', 'vOris'])
+			intwriter.writerow(['chr', 'hPos', 'leftStart', 'leftStop',  'rightStart', 'rightStop', 'hDeleted', 'virus', 'vBreakpoints', 'vOris', 'juncTypes', 'juncBases', 'juncLengths', 'rearrangement', 'deletion'])
 			for i, integration in enumerate(self):
+				assert integration.pos is not None
 				
-				# calculate start and stop position for this integration
-				hStart = integration.pos + previous_ints[integration.chr] + 1
-				hStop = hStart + len(integration.chunk.bases) - 1
+				# calculate start and stop position for this integration				
+				left_start = integration.pos + previous_ints[integration.chr]
+				left_stop = left_start + integration.n_juncs[0]
 				
-				# update previous_ints
+				right_start = left_start + len(integration.chunk.bases)
+				right_stop = right_start + integration.n_juncs[1]
+				
+				# update previous_ints - total integrated bases
+				# are the integrated viral bases, and the bases in the gaps/overlaps
 				previous_ints[integration.chr] += len(integration.chunk.bases)
+				previous_ints[integration.chr] += integration.n_juncs[0]
+				previous_ints[integration.chr] += integration.n_juncs[1]
 
+				# format lists into comma-separated strings
 				breakpoints = ",".join([str(i) for i in integration.chunk.pieces])
-				oris = ",".join(integration.chunk.oris)
+				oris = ','.join(integration.chunk.oris)
+				junc_types = ",".join(integration.junc_types)
+				junc_bases = ",".join(integration.junc_bases)
+				junc_lengths = ",".join([str(i) for i in integration.n_juncs])
+				
+				
 				intwriter.writerow([integration.chr, 
 									integration.pos, 
-									hStart, 
-									hStop, 
+									left_start, 
+									left_stop,
+									right_start,
+									right_stop, 
+									integration.host_deleted,
 									integration.chunk.virus,
 									breakpoints,
-									oris])
+									oris,
+									junc_types,
+									junc_bases,
+									junc_lengths,
+									integration.is_rearrange,
+									integration.is_delete])
 	
+		
 	def __str__(self):
 		return f"Viral integrations object with {len(self)} integrations of viral sequences {list(self.virus.keys())} into host chromosomes {list(self.host.keys())}"
 
@@ -213,59 +417,167 @@ class Integrations(list):
 		
 
 	
-class Integration:
+class Integration(dict):
 	"""
 	Class to store the properties of an individual integration
 	"""
-	def __init__(self, host, virus, portionType = 'whole', overlapTypes = ('clean', 'clean')):
+	def __init__(self, host, virus, rng = np.random.default_rng(), is_whole = True, is_rearrange = False, n_swaps = 1, is_delete = False, n_delete = 1, n_fragments = 3, junc_types = ('clean', 'clean'), n_juncs = (0, 0)):
 		"""
 		Function to initialise Integration object
 		portionType is 'whole' or 'portion' - the part of the virus that has been inserted
 		overlapType is two-member tuple of 'clean', 'gap' or 'overlap' - defines the junction at each end of the integration
+		
+		objects of this class have the following properties:
+		self.chr - string: host chromosome on which integration should be located
+		self.chunk - ViralChunk object which is integrated
+		self.is_whole - boolean indicating if ViralChunk is the whole virus or just a portion
+		self.is_rearrange - boolean indicating if ViralChunk is rearranged
+		self.is_delete - boolean indicating if ViralChunk is deleted
+		self.n_fragments - integer indicating number of pieces/fragments in viral chunk
+		self.junc_types - iterable of length 2 indicating the type of overlap at the left and right junctions, respecivley
+		junc_types may be 'clean', 'gap' or 'overlap'
+		self.n_juncs - iterable of length 2 indicating the number of bases involved in the left and right junctions, respectivley
+		
+		
+		if anything went wrong with initialisation, self.pos is set to None - check this to make sure integration
+		is valid
 		"""
+		
 		# check inputs
 		assert isinstance(virus, dict)
-		assert portionType in int_virus_portions
 	
 		# get random chromosome on which to do insertion
 		self.chr = np.random.choice(list(host.keys()))
 		
 		# get viral chunk
-		assert portionType in int_virus_portions
-		chunk = ViralChunk(virus, portionType)
-		
-		# chunk.virus is assigned None if something went wrong with the initialisation
-		if chunk.virus is not None:
-			self.chunk = ViralChunk(virus, portionType)
-		else:
-			self.pos = None
-			return
+		self.chunk = ViralChunk(virus, rng, is_whole, is_rearrange, n_swaps, is_delete, n_delete, n_fragments)
 		assert self.chunk.pieces is not None
-		assert self.chunk.type == portionType
 		
-		# assign portionType
-		self.portionType = portionType
+		# assign properties to this integrations 
+		self.is_whole = is_whole
+		self.is_rearrange = is_rearrange
+		self.is_delete = is_delete
+		self.n_fragments = len(self.chunk.pieces) # if is_rearrange and is_none are both false, this might not be n_fragments provided to ViralChunk above
 		
 		# set overlap types
-		assert isinstance(overlapTypes, tuple)
-		assert len(overlapTypes) == 2
-		assert all([True if (i in int_junc_types) else False for i in overlapTypes])
-		self.overlapTypes = overlapTypes
+		assert len(junc_types) == 2
+		assert all([True if (i in int_junc_types) else False for i in junc_types])
+		self.junc_types = junc_types
 		
+		# set the number of bases
+		if self.junc_types == ('clean', 'clean'):
+			self.n_juncs = (0, 0)
+		elif self.junc_types[0] == 'clean':
+			self.n_juncs = (0, n_juncs[1])
+		elif self.junc_types[1] == 'clean':
+			self.n_juncs = (n_juncs[0], 0)
+		else:
+			self.n_juncs = n_juncs
+
+		assert len(self.n_juncs) == 2
+		assert len(self.junc_types) == 2
+		
+		# number of bases in overlaps must be less than the length of the integrated chunk
+		if self.n_overlap_bases() >= len(self.chunk.bases):
+			self.pos = None
+			return
+		
+		# set bases belonging to junction
+		self.junc_bases = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
+				
 		# get a position at which to integrate
-		self.get_int_position(len(host[self.chr].seq), self.overlapTypes[0], self.overlapTypes[1])
+		self.get_int_position(host[self.chr].seq)
 		
-	def get_int_position(self, chr_len, left_overlap, right_overlap,):
+		# number of bases deleted from host chromosome
+		self.host_deleted = 0 # TODO
+	
+	def n_overlap_bases(self):
+		"""
+		Get the total number of bases in overlaps
+		"""
+		assert len(self.n_juncs) == 2
+		assert len(self.junc_types) == 2	
+		n = 0
+		if self.junc_types[0] == 'overlap':
+			n += self.n_juncs[0]
+		if self.junc_types[1] == 'overlap':
+			n += self.n_juncs[1]
+		return n
+		
+	def get_int_position(self, chr):
 		"""
 		get a position at which to perform the integration
 		"""
-		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
-		if all([True if (i in int_junc_random_types) else False for i in self.overlapTypes]):
-			self.pos = np.random.randint(chr_len)
+		# for now, can't have overlaps at both ends
+		if self.junc_types[0] == 'overlap' and self.junc_types[1] == 'overlap':
+			self.pos = None
+			return
 		
+		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
+		if all([True if (i in ['clean', 'gap']) else False for i in self.junc_types]):
+			self.pos = np.random.randint(len(chr))
+		
+		# if one end is an overlap, find those bases in the host chromosome
+		# left overlap
+		elif self.junc_types[0] == 'overlap':
+			self.pos = np.random.randint(len(chr)) #TODO
+			## make sure to re-assign  bases, breakpoints and oris attributes of chunk to remove the overlapped bases
+			
+		# right overlap
+		elif self.junc_types[1] == 'overlap':
+			self.pos = np.random.randint(len(chr)) #TODO
+			## make sure to re-assign  bases, breakpoints and oris attributes of chunk to remove the overlapped bases
+			
+		else:
+			pdb.set_trace()
+			raise ValueError(f"junction types {self.junc_types} are not implemented yet")			
+	
+	def get_junc_bases(self, rng, side):
+		"""
+		Get the bases at the left or right junction, depending on whether the junction is
+		a gap, overlap, or clean junction
+		"""
+		assert side in ['left', 'right']
+		assert len(self.junc_types) == 2
+		assert len(self.n_juncs) == 2
+		assert self.junc_types[0] in ['gap', 'overlap', 'clean']
+		assert self.junc_types[1] in ['gap', 'overlap', 'clean']
+
+		
+		if side == 'left':
+			n_bases = self.n_juncs[0]
+			# no bases in a clean junction
+			if self.junc_types[0] == 'clean':
+				return ""
+			# random bases in a gap
+			elif self.junc_types[0] == 'gap':
+				return self.get_n_random_bases(rng, n_bases)
+			# first n bases of viral chunk in an overlap
+			elif self.junc_types[0] == 'overlap':
+				return self.chunk.bases[:n_bases]
+			else:
+				raise ValueError(f"unrecgonised type: {self.junc_types[0]}")
+		elif side == 'right':
+			n_bases = self.n_juncs[1]
+			if self.junc_types[1] == "clean":
+				return ""
+			elif self.junc_types[1] == 'gap':
+				return self.get_n_random_bases(rng, n_bases)
+			elif self.junc_types[1] == 'overlap':
+				return self.chunk.bases[-n_bases:]
+			else:
+				raise ValueError(f"unrecgonised type: {self.junc_types[1]}")
+		else:
+			raise ValueError(f"unrecgonised side: {side}")	
+	
+	def get_n_random_bases(self, rng, n_bases):
+		"""
+		get a string composed of n random nucleotides
+		"""	
+		return "".join(rng.choice(['A', 'T', 'G', 'C'], n_bases))
 		
 	def __str__(self):
-		return f"Viral integration into host chromosome {self.chr} at position {self.pos} of type '{self.type}'"
+		return f"Viral integration into host chromosome {self.chr}'"
 		
 	def __repr__(self):
 		return f"Object of type Integration with properties {self}"
@@ -298,16 +610,16 @@ class Integration:
 		return (self.chr.lower(), self.pos) == (other.chr.lower(), other.pos)
 
 	
-class ViralChunk:
+class ViralChunk(dict):
 	"""
 	Class to store properties of an integrated chunk of virus
 	"""
 	
-	def __init__(self, virus, type, deletion=True, rearrange=True, lambda_poisson = 1.5):
+	def __init__(self, virus, rng, is_whole = False, deletion=True, n_delete = 1, rearrange=True, n_swaps = 1, n_fragments = 3):
 		"""
 		function to get a chunk of a virus
 		virus is the dictionary of seqrecords imported using biopython
-		type specifies if we want the 'whole' virus, or just a 'portion'
+		is_whole specifies if we want the whole virus (if True), or just a portion (if False)
 		
 		a viral chunk can be subdivided into smaller pieces if we want
 		a deletion or a rearrangement.  if deletion is true, the chunk
@@ -316,19 +628,18 @@ class ViralChunk:
 		if rearrange is True, the chunk will be subdivided into at least two pieces
 		and they will be randomly shuffled
 
+		the bases attribute of a ViralChunk consist of only the bases that are unique to the virus. 
+		So in the case of an Integration of a ViralChunk with a 'overlap' type junction,
+		the bases, breakpoints and oris attributes are re-assigned to remove the overlapped bases
 		
 		"""
 		# check inputs
 		assert isinstance(virus, dict)
-		assert type in int_virus_portions
-		
-		# assign type to self
-		self.type = type
 		
 		# get a random virus to integrate
 		self.virus = np.random.choice(list(virus.keys()))
 		
-		if type == "whole":
+		if is_whole is True:
 			self.start = 0
 			self.stop = len(virus[self.virus])
 		else:
@@ -345,13 +656,13 @@ class ViralChunk:
 		
 		# do a deletion if applicable
 		if deletion is True:
-			self.__delete(lambda_poisson)
+			self.__delete(rng, n_fragments, n_delete)
 			# if something went wrong, breakpoints will be None
 			if self.pieces is None:
 				return
 				
 		if rearrange is True:
-			self.__rearrange(lambda_poisson)
+			self.__rearrange(rng, n_fragments, n_swaps)
 			# if something went wrong, breakpoints will be None
 			if self.pieces is None:
 				return
@@ -376,49 +687,7 @@ class ViralChunk:
 				bases += [str(virus[self.virus].seq[start:stop].reverse_complement())]
 		return "".join(bases)
 		
-	def __get_poisson_with_minimum_and_maximum(self, lambda_poisson, minimum = -np.inf, maximum = np.inf):
-		"""
-		A recurring task is to get an integer from the poisson distriubtion that is at least
-		a minimum number
-		"""
-		# make sure minimum is less than or equal to maximum
-		assert maximum >= minimum
-		
-		# if minimum and maximum are the same, just return 
-		if minimum == maximum:
-			return minimum
-		
-		# get number of pieces to divide chunk into
-		counter = 0
-		assert lambda_poisson > 1
-		while True:
-			# get a number from the poisson distrubtion
-			n = np.random.poisson(lambda_poisson)
-			# if it's more than the minimum, we're done
-			if n >= minimum and n <= maximum:
-				return n
-			counter += 1
-			# after too many tries, give up
-			if counter > max_attempts:
-				self.pieces = None
-				return
-		# if something went wrong and we ended up here, just set self.pieces to None
-		# and return
-		self.pieces = None
-		return 0
-		
-	def __get_unique_list(self, start, stop, num = 1):
-		"""
-		get a random list of num integers between start and stop, with no repeats
-		"""
-		# make sure that we're not trying to get more numbers than is possible
-		assert isinstance(start, int) and isinstance(stop, int) and isinstance(num, int)
-		assert num <= (stop - start)
-		
-		return np.random.choice(range(start, stop), num, replace = False)
-					
-		
-	def __split_into_pieces(self, lambda_poisson, min_pieces = 2):
+	def __split_into_pieces(self, rng, n_fragments):
 		"""
 		get random, unique breakpoints to divide a viral chunk into pieces
 		there must be at least min_breakpoints, which results in min_breakpoints + 1 pieces 
@@ -429,25 +698,21 @@ class ViralChunk:
 		assert len(self.oris) == 1
 		
 		# check that we're not trying to divide a chunk into more pieces than there are bases
-		if min_pieces >= self.stop - self.start:
+		if n_fragments >= self.stop - self.start:
 			self.pieces = None
 			return
 		
 		# get the number of pieces to divide into
-		num_breakpoints = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = min_pieces - 1)
-		if num_breakpoints == 0:
-			self.pieces = None
-			return
+		num_breakpoints = n_fragments - 1
 				
 		# get random breakpoints from within this chunk
-		breakpoints = self.__get_unique_list(self.start + 1, self.stop - 1, num_breakpoints)
+		breakpoints = rng.choice(range(self.start + 1, self.stop - 1), size = num_breakpoints, replace = False)
 				
 		# set self.pieces
 		breakpoints = [self.start] + sorted(breakpoints) + [self.stop]
 		self.pieces = [(breakpoints[i], breakpoints[i+1]) for i in range(len(breakpoints) - 1)]
 		
 		# set self.oris
-		
 		self.oris = [self.oris[0]] * len(self.pieces)
 		return	
 		
@@ -467,67 +732,66 @@ class ViralChunk:
 				if ori == "+":
 					self.oris[i] = "-"
 				else:
-					self.oris[i] = "+"
-			
-			
+					self.oris[i] = "+"		
 	
-	def __delete(self, lambda_poisson):
+	def __delete(self, rng, n_fragments, n_delete):
 		"""
 		Divide a viral chunk up into multiple pieces
 		and remove one of those pieces
 		"""
 		# deletions are always performed first, so the chunk should not have been split yet
 		assert len(self.pieces) == 1
+		
+		assert n_fragments - n_delete >= 2 # want to have at least two pieces left
 
-		# split chunk into at least three pieces
-		self.__split_into_pieces(lambda_poisson, min_pieces = 3)
+		# split chunk into at n_fragments pieces
+		self.__split_into_pieces(rng, n_fragments)
 		if self.pieces is None:
 			return
-			
-		# decide how many portions to delete - the maximum is the length of self.pieces - 2
-		max_delete = len(self.pieces) - 2
-		n_delete = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 0, maximum = max_delete)
+		assert len(self.pieces) == n_fragments
 		
 		# decide which portions to delete
-		i_delete = self.__get_unique_list(1, len(self.pieces) - 1, n_delete)
+		i_delete = rng.choice(range(1, len(self.pieces) - 1), n_delete, replace=False)
 		
 		# do deletion
 		self.pieces = [piece for i, piece in enumerate(self.pieces) if i not in i_delete]
 		self.oris = [ori for i, ori in enumerate(self.oris) if i not in i_delete]	
 		
-	def __rearrange(self, lambda_poisson):
+		assert len(self.pieces) == n_fragments - n_delete
+		
+	def __rearrange(self, rng, n_fragments, n_swaps):
 		"""
 		Divide a viral chunk up into multiple pieces
 		and randomise their order and orientiations
 		"""
-		pdb.set_trace()
 		# split the chunk if it hasn't already been split
 		if len(self.pieces) == 1:
 			# split chunk into at least three pieces
-			self.__split_into_pieces(lambda_poisson, min_pieces = 2)
+			self.__split_into_pieces(rng, n_fragments)
 			if self.pieces is None:
 				return
-			
-		# decide how many swaps to make
-		n_swap = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 1)
+			assert len(self.pieces) == n_fragments
+		else:
+			assert len(self.pieces) > 1
 		
-		for i in range(n_swap):
+		
+		for i in range(n_swaps):
 			# pick a point about which to swap
-			i_swap = self.__get_poisson_with_minimum_and_maximum(lambda_poisson, minimum = 1, maximum = len(self.pieces) - 1)
-			
+			i_swap = rng.choice(range(1, len(self.pieces) - 1))
+				
 			# swap everything to the left of this position with everything on the right
 			self.pieces = self.pieces[i_swap:] + self.pieces[:i_swap]
 			
 			# 50 % chance of swapping the orientations of all the pieces for each side
-			if np.random.choice((True, False)) is True:
+			if rng.choice((True, False)) is True:
 				self.__swap_orientations(self, i_swap, side = 'left')
-			if np.random.choice((True, False)) is True:
+			if rng.choice((True, False)) is True:
 				self.__swap_orientations(self, i_swap, side = 'right')
 
 		
 	
 	def __str__(self):
-		return f"Viral chunk of virus {self.virus} ({self.start}, {self.stop}) with type '{self.type}' and orientations {self.oris}"
+		return f"Viral chunk of virus {self.virus} ({self.start}, {self.stop}) and orientations {self.oris}"
 		
 	def __repr__(self):
 		return f"Object of type ViralChunk with properties {self}"
