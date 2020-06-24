@@ -77,14 +77,6 @@ def main(argv):
 	seqs.save_integrations_info(args.int_info)
 	seqs.save_episomes_info(args.epi_info)
 	
-	#### save outputs ####
-	print("")
-	if args.verbose is True:
-		print(f"saving host fasta with integrations to {args.ints}")
-	
-	if args.verbose is True:
-		print(f"saving information about integrations to {args.info}")
-	#ints.save_info(args.info)
 
 	
 class Events(dict):
@@ -186,11 +178,11 @@ class Events(dict):
 			raise ValueError("episomes have already been added to this Events object")
 			
 		# instantiate Episomes object
-		self.epis = Episomes(self.virus, probs, self.rng, max_attempts)
+		self.epis = Episomes(self.virus, self.rng, probs, max_attempts)
 		
 		# add epi_num episomes
 		if self.verbose is True:
-			print(f"adding epi_num episomes")
+			print(f"adding {epi_num} episomes")
 		counter = 0
 		while len(self.epis) < epi_num:
 			if self.epis.add_episome() is False:
@@ -214,16 +206,16 @@ class Events(dict):
 		"""
 		save output sequences to file
 		"""
-		
+
 		if 'ints' in vars(self):
 			assert len(self.ints) != 0
 			self.ints._Integrations__save_fasta(file, append = False)
 		
-		elif 'epis' in vars(self):
+		if 'epis' in vars(self):
 			assert len(self.epis) != 0
 			self.epis._Episomes__save_fasta(file, append = True)
 			
-		else:
+		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
 			print("warning: no integrations or episomes have been added")
 			
 		if self.verbose is True:
@@ -735,10 +727,10 @@ class Episomes(Integrations):
 		
 		with open(filename, "w", newline='') as csvfile:
 			epiwriter = csv.writer(csvfile, delimiter = '\t')
-			epiwriter.write(header)
+			epiwriter.writerow(header)
 			
 			for chunk in self:
-				epiwriter.write([chunk.id,
+				epiwriter.writerow([chunk.id,
 								 chunk.virus,
 								 chunk.start,
 								 chunk.stop,
