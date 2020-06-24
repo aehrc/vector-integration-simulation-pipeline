@@ -25,6 +25,8 @@ default_lambda_split = 1.5
 default_p_overlap = 0.3
 default_p_gap = 0.3
 default_lambda_junction = 3
+default_p_host_del = 0.0
+default_lambda_host_del = 1000
 
 search_length_overlap = 10000 # number of bases to search either side of randomly generated position for making overlaps
 
@@ -45,6 +47,8 @@ def main(argv):
 	parser.add_argument('--p_overlap', help=f"probability of a junction to be overlapped (common bases between virus and host) [{default_p_overlap}]", type=float, default=default_p_overlap) 
 	parser.add_argument('--p_gap', help=f"probability of a junction to have a gap [{default_p_gap}]", type=float, default=default_p_gap) 
 	parser.add_argument('--lambda_junction', help = f"mean of poisson distribution of number of bases in a gap/overlap [{default_lambda_junction}]", type=float, default=default_lambda_junction)
+	parser.add_argument('--p_host_deletion', help=f"probability of a host deletion at the integation site [{default_p_host_del}]", type=float, default=default_p_host_del) 	
+	parser.add_argument('--lambda_host_deletion', help = f"mean of poisson distribution of number of bases deleted from the host [{default_lambda_host_del}]", type=float, default=default_lambda_host_del)	
 	parser.add_argument('--epi_num', help = f"number of episomes to added to output fasta [{default_ints}]", type=int, default=default_ints)
 	parser.add_argument('--epi_info', help = 'output tsv with info about episomes', type=str, default="episomes.tsv")	
 	parser.add_argument('--seed', help = 'seed for random number generator', default=12345, type=int)
@@ -54,13 +58,15 @@ def main(argv):
 	#### generate integrations ####		
 	
 	# generate dictionary of probabilities and lambda/means as input for Integrations class
-	probs = {'p_whole' 			: args.p_whole,
-			'p_rearrange' 		: args.p_rearrange,
-			'p_delete'			: args.p_delete,
-			'lambda_split'		: args.lambda_split,
-			'p_overlap' 		: args.p_overlap,
-			'p_gap' 			: args.p_gap,
-			'lambda_junction' 	: args.lambda_junction}
+	probs = {'p_whole' 				: args.p_whole,
+			'p_rearrange' 			: args.p_rearrange,
+			'p_delete'				: args.p_delete,
+			'lambda_split'			: args.lambda_split,
+			'p_overlap' 			: args.p_overlap,
+			'p_gap' 				: args.p_gap,
+			'lambda_junction' 		: args.lambda_junction,
+			'p_host_del'			: args.p_host_deletion,
+			'lambda_host_del'		: args.lambda_host_deletion}
 			
 	# initialise Events
 	if args.verbose is True:
@@ -243,13 +249,12 @@ class Events(dict):
 		if self.verbose is True:
 			print(f"saved information about episomes to {file}")
 		
-	
 class Integrations(list):
 	"""
 	Class to store all integrations for a given host and virus
 	This class stores the sequences for the host and virus (dictionaries of biopython seqRecord objects)
 	And probabilities of each type of viral integration - whole/portion, rearrangement/deletion, gap/overlap, 
-	means of poisson distributions
+	means of poisson distributions, host deletions and their mean lengths, etc
 	
 	These probabilities and means are stored in a dictionary - probs, which must contain the following values:
 	
@@ -268,6 +273,9 @@ class Integrations(list):
 	p_gap - probability of a junction to contain a gap (random bases inserted between host and virus)
 	(probability of neither a rearrangement or a deletion is 1 - (p_overlap + p_gap) )
 	lambda_junction - mean of poisson distribution of number of bases involved in overlap or gap
+	
+	p_host_del - probability that there will be a deletion from the host at integration site
+	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
 	
 	"""
 	def __init__(self, host, virus, probs, rng, max_attempts=50):
@@ -296,6 +304,8 @@ class Integrations(list):
 		self.set_probs_default('p_overlap', default_p_overlap)
 		self.set_probs_default('p_gap', default_p_gap)
 		self.set_probs_default('lambda_junction', default_lambda_junction)	
+		self.set_probs_default('p_host_del', default_p_host_del)
+		self.set_probs_default('lambda_host_del', default_lambda_host_del)	
 		
 		# checks on assigned variables
 		assert 'p_whole' in probs
@@ -305,15 +315,19 @@ class Integrations(list):
 		assert 'p_overlap' in probs
 		assert 'p_gap' in probs
 		assert 'lambda_junction' in probs
+		assert 'p_host_del' in probs
+		assert 'lambda_host_del' in probs
 					
 		# check that probabilities are between 0 and 1
 		self.check_prob(self.probs['p_whole'], 'p_whole')
 		self.check_prob(self.probs['p_rearrange'] + self.probs['p_delete'], 'the sum of p_rearrange and p_delete')	
 		self.check_prob(self.probs['p_overlap'] + self.probs['p_gap'], 'the sum of p_overlap and p_gap')
+		self.check_prob(self.probs['p_host_del'], 'p_host_deletion')
 			
 		# check that lambda values are positive floats	
 		self.check_float_or_int_positive(self.probs['lambda_split'], 'lambda_split')
 		self.check_float_or_int_positive(self.probs['lambda_junction'], 'lambda_junction')
+		self.check_float_or_int_positive(self.probs['lambda_host_del'], 'lambda_host_deletion')
 	
 	def set_probs_default(self, key, default):
 		"""
@@ -366,10 +380,10 @@ class Integrations(list):
 			
 		# call functions that randomly set properties of this integrations
 		chunk_props = self.set_chunk_properties()
-		assert len(chunk_props) != 2
+		assert len(chunk_props) == 4
 			
 		junc_props = self.set_junc_properties()
-		assert len(junc_props) != 4
+		assert len(junc_props) == 4
 					
 		# make an integration
 		integration = Integration(self.host, 
@@ -395,6 +409,8 @@ class Integrations(list):
 		dict with the following properties:
 			- junc_types = iterable of length 2 specifying type of left and right junctions (one of gap, overlap, clean)
 			- n_junc = iterable of length 2 specifying length of left and right junctions
+			- host_del = boolean specifying if there should be a deletion from the host at the integration site
+			- host_del_len = integer specifying the number of bases to be deleted from the host at the integration site
 		"""
 		
 		junc_props = {}
@@ -408,7 +424,7 @@ class Integrations(list):
 		if junc_props['junc_types'][0] == 'clean':
 			n_left_junc = 0
 		elif junc_props['junc_types'][0] in ['gap', 'overlap']:
-			n_left_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 0)
+			n_left_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 1)
 		else:
 			return {}
 			
@@ -416,12 +432,34 @@ class Integrations(list):
 		if junc_props['junc_types'][1] == 'clean':
 			n_right_junc = 0
 		elif junc_props['junc_types'][1] in ['gap', 'overlap']:
-			n_right_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 0)
+			n_right_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 1)
 		else:
 			return {}
 		
 		junc_props['n_junc'] = (n_left_junc, n_right_junc)
+		
+		# check that if we have a clean junction, it's length is 0 
+		assert not(junc_props['junc_types'][0] == 'clean') or junc_props['n_junc'][0] == 0
+		assert not(junc_props['junc_types'][1] == 'clean') or junc_props['n_junc'][1] == 0 
+		
+		# check that if we don't have a clean junction, it's length is greater than zero
+		assert not(junc_props['junc_types'][0] != 'clean') or junc_props['n_junc'][0] > 0
+		assert not(junc_props['junc_types'][1] != 'clean') or junc_props['n_junc'][1] > 0 
+		
+		# decide if this integration should have a deletion from the host
+		host_deletion = self.rng.choice(a = [True, False], p = (self.probs['p_host_del'], 1 - self.probs['p_host_del']))
+		junc_props['host_del'] = bool(host_deletion)
+		
+		# if we're doing a host deletion, get number of bases to be deleted
+		if junc_props['host_del'] is True:
+			junc_props['host_del_len'] = self.poisson_with_minimum_and_maximum(self.probs['lambda_host_del'], min = 1)
+		elif junc_props['host_del'] is False:
+			junc_props['host_del_len'] = 0
+		else:
+			return {}
 			
+		
+		# check that 
 		return junc_props
 		
 	def set_chunk_properties(self):
@@ -784,7 +822,9 @@ class Integration(dict):
 			- junc_types = iterable of length 2 specifying type of left and right junctions (one of gap, overlap, clean)
 			- n_junc = iterable of length 2 specifying length of left and right junction
 			- junc_bases = iterable of length 2 specifying bases involved in each junction
-s
+			- host_del = boolean specifying if there should be a deletion from the host
+			- host_del_len = number of bases to be deleted from the host at this integration site
+			
 		if anything went wrong with initialisation, self.pos is set to None - check this to make sure integration
 		is valid
 		
@@ -800,6 +840,8 @@ s
 		assert isinstance(chunk_props, dict) # leave most of the checking to ViralChunk
 		
 		assert isinstance(junc_props, dict)
+		assert len(junc_props) == 4
+		
 		assert 'junc_types' in junc_props
 		assert len(self.junc_props['junc_types']) == 2
 		assert all([i in ['clean', 'gap', 'overlap'] for i in self.junc_props['junc_types']])
@@ -809,9 +851,19 @@ s
 		assert all([isinstance(i, int) for i in self.junc_props['n_junc']])
 		assert all([i >=0 for i in self.junc_props['n_junc']])
 		
-		assert search_length_overlap > 0 and isinstance(search_length_overlap, int)
+		assert 'host_del' in junc_props
+		assert isinstance(junc_props['host_del'], bool)
 		
-				
+		assert 'host_del_len' in junc_props
+		assert isinstance(junc_props['host_del_len'], int)
+		assert junc_props['host_del_len'] >= 0
+		if junc_props['host_del'] is True:
+			assert junc_props['host_del_len'] > 0
+		if junc_props['host_del'] is False:
+			assert junc_props['host_del_len'] == 0
+		
+		assert search_length_overlap > 0 and isinstance(search_length_overlap, int)
+			
 		# set parameters that won't be changed
 		self.search_length_overlap = search_length_overlap
 		self.id = int_id
@@ -823,10 +875,14 @@ s
 		self.chunk = ViralChunk(virus, 
 								rng, 
 								chunk_props)
-		assert self.chunk.pieces is not None
+		# if specified properties (chunk_props) are incompatible with the initialised chunk
+		# self.chunk.pieces will be None
+		if self.chunk.pieces is None:
+			self.pos = None
+			return
 		
 		
-		# set the number of bases
+		# set the number of bases in overlaps
 		self.junc_props['n_junc'] = [junc_props['n_junc'][0], junc_props['n_junc'][1]]
 		# but overwrite in the case of a clean junction
 		if self.junc_props['junc_types'][0] == 'clean':
@@ -1295,6 +1351,7 @@ class ViralChunk(dict):
 		Divide a viral chunk up into multiple pieces
 		and remove one of those pieces
 		"""
+		
 		# deletions are always performed first, so the chunk should not have been split yet
 		assert len(self.pieces) == 1
 		
