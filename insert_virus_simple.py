@@ -11,6 +11,7 @@ import numpy as np
 import pdb 
 import csv
 import re
+import pprint
 
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
@@ -31,6 +32,11 @@ default_lambda_host_del = 1000
 search_length_overlap = 10000 # number of bases to search either side of randomly generated position for making overlaps
 
 fasta_extensions = [".fa", ".fna", ".fasta"]
+
+min_sep = 1 # TODO - min_sep is command line argument
+
+
+pp = pprint.PrettyPrinter(indent=4)
 
 def main(argv):
 	#get arguments
@@ -82,8 +88,6 @@ def main(argv):
 	seqs.save_fasta(args.ints)
 	seqs.save_integrations_info(args.int_info)
 	seqs.save_episomes_info(args.epi_info)
-	
-
 	
 class Events(dict):
 	"""
@@ -328,7 +332,18 @@ class Integrations(list):
 		self.check_float_or_int_positive(self.probs['lambda_split'], 'lambda_split')
 		self.check_float_or_int_positive(self.probs['lambda_junction'], 'lambda_junction')
 		self.check_float_or_int_positive(self.probs['lambda_host_del'], 'lambda_host_deletion')
+		
+		# initialize model of integrations
+		# each chromosome is an entry in the model dict
+		# each chromosome is composed of a list of sequences, each composed of a dictionary
+		# each sequence is a dictionary, specifying the 'origin' of the bases - 'host', 'virus', 'ambig'
+		# as well as the start and stop and orientation of that sequence (in a list)
+		# this is to be updated every time we do an integration
+
+		self.model = {chr : [{'origin': 'host', 'coords':(0, len(seq)), "ori" : "+", 'seq_name': chr}] for chr, seq in host.items()}
 	
+			
+
 	def set_probs_default(self, key, default):
 		"""
 		check if a key is in the probs dictionary, and if not set it to a default
@@ -388,6 +403,7 @@ class Integrations(list):
 		# make an integration
 		integration = Integration(self.host, 
 								  self.virus,
+								  model = self.model,
 								  rng = self.rng,
 								  int_id = len(self),
 								  chunk_props = chunk_props,
@@ -398,7 +414,10 @@ class Integrations(list):
 		if integration.chunk.pieces is not None:
 			if integration.pos is not None:
 				assert integration.id not in [item.id for item in self]
+				
 				self.append(integration)
+				self.__update_model(integration)
+				
 				return True
 				
 		return False
@@ -518,6 +537,107 @@ class Integrations(list):
 			chunk_props['n_swaps'] = 0
 			
 		return chunk_props
+		
+	def __update_model(self, int):
+		"""
+		update self.model for a new integration 
+		"""
+
+		# find segment in which integration should occur
+		for i, seg in enumerate(self.model[int.chr]):
+			if seg['origin'] != 'host':
+				continue
+			if int.pos >= seg['coords'][0] and int.pos <= seg['coords'][1]:
+				break
+		
+		# remove this element from the list
+		seg = self.model[int.chr].pop(i)
+		host_start = seg['coords'][0]
+		host_stop = seg['coords'][1]
+		overlap_bases = 0
+		
+		# create host segment before this integration and add to list
+		host = {}
+		host['origin'] = 'host'
+		host['seq_name'] = int.chr
+		host['ori'] = "+"
+		host['coords'] = (host_start, int.pos)
+		self.model[int.chr].insert(i, host)
+		i += 1
+		
+		# if we have ambiguous bases at the left junction, add these to the list too
+		assert len(int.junc_props['junc_bases'][0]) == int.junc_props['n_junc'][0]
+		if int.junc_props['junc_types'][0] in ['gap', 'overlap']:
+			# features common to both ambiguous types
+			ambig = {'origin': 'ambig'}
+			ambig['bases'] = int.junc_props['junc_bases'][0]
+			ambig['ori'] = "+"
+			# gap features
+			if int.junc_props['junc_types'][0] == 'gap':
+				ambig['seq_name'] = 'gap'
+				ambig['coords'] = (0, int.junc_props['n_junc'][0])
+				
+			# overlap features
+			elif int.junc_props['junc_types'][0] == 'overlap':
+				overlap_bases += int.junc_props['n_junc'][0]
+				ambig['seq_name'] = int.chr
+				ambig['coords'] = (int.pos, int.pos + int.junc_props['n_junc'][0])
+				assert str(self.host[int.chr][ambig['coords'][0]:ambig['coords'][1]].seq).lower() == int.junc_props['junc_bases'][0].lower()
+			else:
+				raise ValueError(f"unrecgonised integration type: {int.junc_props[0]}")
+			self.model[int.chr].insert(i, ambig)
+			i += 1
+		
+		# add each piece of the viral chunk too
+		for j in range(len(int.chunk.pieces)):
+			virus = {}
+			virus['origin'] = 'virus'
+			virus['coords'] = (int.chunk.pieces[j][0], int.chunk.pieces[j][1])
+			virus['ori'] = int.chunk.oris[j]
+			virus['seq_name'] = int.chunk.virus
+			self.model[int.chr].insert(i, virus)
+			i += 1
+			
+		# if we have ambiguous bases at the right junction, add these
+		assert len(int.junc_props['junc_bases'][1]) == int.junc_props['n_junc'][1]
+		if int.junc_props['junc_types'][1] in ['gap', 'overlap']:
+			ambig = {'origin': 'ambig'}
+			ambig['bases'] = int.junc_props['junc_bases'][1]
+			ambig['ori'] = "+"
+			if int.junc_props['junc_types'][1] == 'gap':
+				ambig['seq_name'] = 'gap'
+				ambig['coords'] = (0, int.junc_props['n_junc'][1])
+				
+			# overlap features
+			elif int.junc_props['junc_types'][1] == 'overlap':
+				overlap_bases += int.junc_props['n_junc'][1]
+				ambig['seq_name'] = int.chr
+				# if the left junction was also an overlap, we need to account for this in the coordinates
+				if int.junc_props['junc_types'][0] == 'overlap':
+					start = int.pos + int.junc_props['n_junc'][0]
+					stop = start + int.junc_props['n_junc'][1]
+				else:
+					start = int.pos
+					stop = start + int.junc_props['n_junc'][1]
+				
+				ambig['coords'] = (start, stop)
+				assert str(self.host[int.chr][ambig['coords'][0]:ambig['coords'][1]].seq).lower() == int.junc_props['junc_bases'][1].lower()
+			else:
+				raise ValueError(f"unrecgonised integration type: {int.junc_props[0]}")
+			self.model[int.chr].insert(i, ambig)
+			i += 1
+			
+		# finally, add second portion of host
+		host = {}
+		host['origin'] = 'host'
+		host['seq_name'] = int.chr
+		host['ori'] = "+"
+		
+		# accounting for bases deleted from the host and overlaps
+		host['coords'] =  (int.pos + int.junc_props['host_del_len'] + overlap_bases, host_stop)
+		
+		self.model[int.chr].insert(i, host)
+		i += 1		
 	
 	def __save_fasta(self, filename, append = False):
 		"""
@@ -535,33 +655,29 @@ class Integrations(list):
 			
 				# print chromosome name
 				handle.write(f">{chr}\n")
-				position = 0
+								
+				# loop over entries in the model for this chromosome
+				for entry in self.model[chr]:
+					start = entry['coords'][0]
+					stop = entry['coords'][1]
+					
+					# if host
+					if entry['origin'] == 'host':
+						handle.write(str(self.host[chr].seq[start:stop]))
 				
-				# get integrations on this chromosome
-				ints_on_this_chr = [integration for integration in self if integration.chr == chr]
+					# if ambiguous
+					elif entry['origin'] == 'ambig':
+						handle.write(entry['bases'])
+							
+					# if viral
+					elif entry['origin'] == 'virus':
+						virus = entry['seq_name']
+						handle.write(str(self.virus[virus].seq[start:stop]))
+					
+					else:
+						raise ValueError(f"unrecgonised model feature on chr {chr}: {entry}")
 				
-				# if there are no integrations on this chromosome, just write the host bases
-				if len(ints_on_this_chr) == 0:
-					handle.write(str(self.host[chr].seq))
-				
-				# loop over sorted integrations in this chromosome
-				else:
-					for integration in sorted(ints_on_this_chr):
-						assert integration.pos is not None
-						# write host bases before this integration
-						handle.write(str(self.host[chr].seq[position:integration.pos]))
-						# write left gap if relevant
-						if integration.junc_props['junc_types'][0] == 'gap':
-							handle.write(integration.junc_props['junc_bases'][0])
-						# write integrated viral bases
-						handle.write(integration.chunk.bases)
-						# write right gap if relevant
-						if integration.junc_props['junc_types'][1] == 'gap':
-							handle.write(integration.junc_props['junc_bases'][1])
-						# update positon
-						position = integration.pos
-				# write the final bases of the chromosome
-				handle.write(str(self.host[chr].seq[position:]))
+
 				handle.write("\n")
 		
 	def __save_info(self, filename):
@@ -583,6 +699,8 @@ class Integrations(list):
 		 - juncTypes: types (gap, overlap, clean) of left and right junctions, respectively
 		 - juncBases: bases at left and right junctions, respectively
 		"""
+		#pp.pprint(self.model)
+		
 		# dictionary will keep track of the number of bases previously integrated on each chromosome
 		previous_ints = {key:0 for key in self.host.keys()}
 		deleted_bases = {key:0 for key in self.host.keys()}
@@ -596,17 +714,20 @@ class Integrations(list):
 				assert integration.pos is not None
 				
 				# calculate start and stop position for this integration				
-				left_start = integration.pos + previous_ints[integration.chr]
-				left_stop = left_start + integration.junc_props['n_junc'][0]
+				left_start = integration.pos + previous_ints[integration.chr] - deleted_bases[integration.chr]
+				left_stop = left_start + integration.junc_props['n_junc'][0] 
 				
-				right_start = left_start + len(integration.chunk.bases)
-				right_stop = right_start + integration.junc_props['n_junc'][1]
+				right_start = left_stop + len(integration.chunk.bases)
+				right_stop = right_start + integration.junc_props['n_junc'][1] 
 				
 				# update previous_ints - total integrated bases
 				# are the integrated viral bases, and the bases in the gaps/overlaps
 				previous_ints[integration.chr] += len(integration.chunk.bases)
 				previous_ints[integration.chr] += integration.junc_props['n_junc'][0]
 				previous_ints[integration.chr] += integration.junc_props['n_junc'][1]
+				
+				# update deleted_bases
+				deleted_bases[integration.chr] += integration.junc_props['host_del_len']
 
 				# format lists into comma-separated strings
 				breakpoints = ",".join([str(i) for i in integration.chunk.pieces])
@@ -794,7 +915,7 @@ class Integration(dict):
 	
 	This class is intended to be used by the Integrations class, which is essentially a list of Integration objects
 	"""
-	def __init__(self, host, virus, rng, int_id, chunk_props, junc_props):
+	def __init__(self, host, virus, model, rng, int_id, chunk_props, junc_props):
 		"""
 		Function to initialise Integration object
 		portionType is 'whole' or 'portion' - the part of the virus that has been inserted
@@ -803,6 +924,7 @@ class Integration(dict):
 		when initialising an Integration, need to provide:
 		 - host (as a dict of SeqRecord objects or similar)
 		 - virus (as a dict of SeqRecord ojbects or similar)
+		 - model - self.model of Integrations object - specifies where existing integrations have occured
 		 - rng (a numpy.random.Generator object for setting random properties)
 		 - chunk_props (a dict of properties for initialising ViralChunk object)
 		 - junc_props (a dict of properties defining the junctions of this integration)
@@ -837,6 +959,11 @@ class Integration(dict):
 
 		# check inputs	
 		assert isinstance(virus, dict)
+		
+		assert isinstance(model, dict)
+		for key in host.keys():
+			assert key in model
+		
 		assert isinstance(chunk_props, dict) # leave most of the checking to ViralChunk
 		
 		assert isinstance(junc_props, dict)
@@ -898,15 +1025,31 @@ class Integration(dict):
 		
 		# set bases belonging to junction
 		self.junc_props['junc_bases'] = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
-				
+		
 		# get a position at which to integrate
-		if self.get_int_position(host[self.chr].seq, rng) is False:
+		if self.get_int_position(host[self.chr].seq, rng, model) is False:
 			self.pos = None
 			return
 		
 		# number of bases deleted from host chromosome
-		self.host_deleted = 0 # TODO
+		if junc_props['host_del'] is False:
+			self.host_deleted = 0 
+		else:
+			self.host_deleted = junc_props['host_del_len']
+			
+			# but only delete up to the length of the segment in which this integration occurs, 
+			# so that we don't delete any integrations as well
+			for seg in model[self.chr]:
 		
+				# find if this is the segment in which the integration occurs
+				if not self.has_overlap(self.pos, self.pos, seg['coords'][0], seg['coords'][1]):
+					continue
+			
+				# are we trying to delete past the end of the segment?
+				if self.pos + self.host_deleted >= (seg['coords'][1] - min_sep):
+					self.host_deleted = seg['coords'][1] - self.pos - min_sep 
+				break
+			
 		# double check for valid chunk
 
 		assert self.chunk.bases == self.chunk.get_bases(virus)
@@ -915,6 +1058,7 @@ class Integration(dict):
 		assert len(self.junc_props['junc_bases'][0]) == self.junc_props['n_junc'][0]
 		assert len(self.junc_props['junc_bases'][1]) == self.junc_props['n_junc'][1]
 		assert all([len(i) == 2 for i in self.chunk.pieces])
+		assert len(self.chunk.pieces) == len(self.chunk.oris)
 		
 	def n_overlap_bases(self):
 		"""
@@ -929,7 +1073,35 @@ class Integration(dict):
 			n += self.junc_props['n_junc'][1]
 		return n
 		
-	def get_int_position(self, chr, rng):
+	def get_random_position(self, model, rng):
+		"""
+		based on current model, get a random position that is available for integration
+		(that is, doesn't already have an integration)
+		
+		do this by getting all the host parts of the model, and choosing a random one (weighted by their length)
+		and then choosing a random position from within this part
+		"""
+		
+		# get a list of host coordinates
+		host_coords = [segment['coords'] for segment in model[self.chr] if segment['origin'] == 'host']
+		
+		# TODO - enforce minimum separation
+		host_coords = [(coords[0] + min_sep, coords[1] - min_sep) for coords in host_coords]
+		
+		# ensure lengths are positive
+		host_coords = [coord for coord in host_coords if (coord[1] - coord[0]) > 0]
+		
+		# get lengths of each range to weight choosing a part
+		lengths = [coord[1] - coord[0] for coord in host_coords]
+		lengths = [length/sum(lengths) for length in lengths]
+		
+		# get a random part, weighted by lengths
+		part = rng.choice(host_coords, p = lengths)
+		
+		# get a random postion from this part
+		return int(rng.choice(range(part[0], part[1])))	
+		
+	def get_int_position(self, chr, rng, model):
 		"""
 		get a position at which to perform the integration
 		the position depends on the overlap type at each side of the overlap
@@ -937,18 +1109,17 @@ class Integration(dict):
 		'overlap' junctions place constraints on the integration location because the need
 		to be placed where there are overlaps
 		"""
-
 		
 		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
 		if all([True if (i in ['clean', 'gap']) else False for i in self.junc_props['junc_types']]):
-			self.pos = int(rng.integers(low = 0, high = len(chr)))
+			self.pos = self.get_random_position(model, rng)
 			return True
-
+			
 		# if overlap at both ends, look for both overlaps in host chromosome next to each other
 		elif self.junc_props['junc_types'][0] == 'overlap' and self.junc_props['junc_types'][1] == 'overlap':
 		
 			# make string with both overlap bases 
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0] + self.junc_props['junc_bases'][1], chr, rng)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0] + self.junc_props['junc_bases'][1], chr, rng, model)
 			
 			# check for unsuccessful find
 			if self.pos == -1:
@@ -966,7 +1137,7 @@ class Integration(dict):
 		elif self.junc_props['junc_types'][0] == 'overlap':
 			
 			# find position with overlap at which to do overlap
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0], chr, rng)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0], chr, rng, model)
 			# check for unsuccessful find
 			if self.pos == -1:
 				self.pos = None
@@ -975,16 +1146,13 @@ class Integration(dict):
 			## need to remove overlapped bases from viral chunk, and adjust chunk start, breakpoints and oris
 			self.delete_left_bases(self.junc_props['n_junc'][0])
 			
-			# add checks to make sure that chunk is still valid 
-			# TODO
-			
 			return True
 
 		# right overlap
 		elif self.junc_props['junc_types'][1] == 'overlap':
 
 			# find position with overlap at which to do overlap
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][1], chr, rng)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][1], chr, rng, model)
 			# check for unsuccessful find
 			if self.pos == -1:
 				self.pos = None
@@ -993,9 +1161,6 @@ class Integration(dict):
 			## need to remove overlapped bases from viral chunk, and adjust chunk start, breakpoints and oris
 			self.delete_right_bases(self.junc_props['n_junc'][1])
 			
-			# add checks to make sure that chunk is still valid 
-			# TODO
-			
 			return True
 			
 		else:
@@ -1003,13 +1168,13 @@ class Integration(dict):
 			
 		return False		
 	
-	def find_overlap_bases(self, bases, chr, rng):
+	def find_overlap_bases(self, overlap_bases, chr, rng, model):
 		"""
 		find bases from an overlap in the host chromosome
 		"""
 		
 		# get position around which to search
-		start = int(rng.integers(low = 0, high = len(chr)))
+		start = self.get_random_position(model, rng)
 		
 		# get start and stop positions for bases in host chromosome to search for overlaps
 		stop = start + self.search_length_overlap
@@ -1018,13 +1183,47 @@ class Integration(dict):
 		if stop > len(chr):
 			stop = len(chr)
 			
-		found = re.search(bases, str(chr[start:stop]), re.IGNORECASE)
-			
-		if not found:
+		# find overlapping bases in host segments in model
+		for seg in model[self.chr]:
+			# check that this segment comes from the host
+			if seg['origin'] != 'host':
+				continue
+			# check that this segment overlaps with desired start and stop from above
+			seg_start = seg['coords'][0]
+			seg_stop = seg['coords'][1]
+			if not self.has_overlap(start, stop, seg_start, seg_stop):
+				continue
+			# look for desired overlap bases in this segment
+			if seg['ori'] == "+": 
+				found = re.search(overlap_bases, str(chr[seg_start:seg_stop]), re.IGNORECASE)
+				if found:
+					return found.span()[0] + seg_start
+			else:
+				# not implemented - we assume no flipping of host chromosome segments
+				raise ValueError("host chromosome segment {seg} has a negative orientation!")
+				
+		
 		# check for unsuccessful find
-			return -1
+		return -1
+		
+	def has_overlap(self, start_1, stop_1, start_2, stop_2):
+		"""
+		check to see if two intervals, specified by start_1 and stop_1; and start_2 and stop_2, overlap
+		"""
+		# check inputs
+		assert start_1 <= stop_1
+		assert start_2 <= stop_2
+		
+		# interval 1 start and stop to the left of interval 2
+		if (start_1 < start_2) and (stop_1 < start_2):
+			return False
 			
-		return found.span()[0] + start
+		# interval 2 start and stop are to the right of interval 2
+		if (start_1 > stop_2) and (stop_1 > stop_2):
+			return False
+		
+		# otherwise they must overlap
+		return True
 			
 	def delete_left_bases(self, n):
 		"""
@@ -1332,7 +1531,6 @@ class ViralChunk(dict):
 		Given a breakpoint, swap all of the orientations (+ to - or vice versa) for all of the pieces
 		on the left or right of this breakpoint
 		"""
-		pdb.set_trace
 		if side == 'left':
 			for i, ori in enumerate(self.oris[:breakpoint]):
 				if ori == "+":
