@@ -36,7 +36,8 @@ def main(argv):
 	with open(args.int_info, newline = '') as csvfile:
 		reader = csv.DictReader(csvfile, delimiter = '\t')
 		for row in reader:
-			#print(f"checking row {row}")
+
+			#print(f"checking row {row}\n")
 			
 			## if we're on a new chromosome
 			if row['chr'] != current_chr:
@@ -61,19 +62,19 @@ def main(argv):
 			else:
 				int_stop = int(row['leftStart'])
 		
-		
 			## get start and stop positions within host
-			
-			host_start = host_pos + prev_deleted
+			host_start = host_pos
 			if left_overlap is True and prev_right_overlap is True:
-				host_stop = host_start + (int(row['leftStop']) - prev_right_start)
+				expected_len = (int(row['leftStop']) - prev_right_start)
 			elif left_overlap is True:
-				host_stop = host_start + (int(row['leftStop']) - prev_right_stop)
+				expected_len = (int(row['leftStop']) - prev_right_stop)
 			elif prev_right_overlap is True:
-				host_stop = host_start + (int(row['leftStart']) - prev_right_start)
+				expected_len = (int(row['leftStart']) - prev_right_start)
 			else:
-				host_stop = host_start + (int(row['leftStart']) - prev_right_stop)
+				expected_len = (int(row['leftStart']) - prev_right_stop)
 				
+			host_stop = host_start + expected_len
+			
 			
 			# compare bases
 			host_bases =  str(host[current_chr][host_start:host_stop].seq).lower()
@@ -88,12 +89,11 @@ def main(argv):
 			else:
 				int_pos = int(row['rightStop'])
 				
-			host_pos = host_stop - host_start
+			host_pos = host_stop + int(row['hDeleted'])
 				
 			prev_right_start = int(row['rightStart'])
 			prev_right_stop = int(row['rightStop'])
 			prev_right_overlap = right_overlap
-			prev_deleted = int(row['hDeleted'])
 			
 			
 	
