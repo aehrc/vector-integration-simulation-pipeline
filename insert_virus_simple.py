@@ -548,7 +548,6 @@ class Integrations(list):
 		"""
 		update self.model for a new integration 
 		"""
-
 		# find segment in which integration should occur
 		for i, seg in enumerate(self.model[integration.chr]):
 			if seg['origin'] != 'host':
@@ -709,7 +708,12 @@ class Integrations(list):
 					# if viral
 					elif entry['origin'] == 'virus':
 						virus = entry['seq_name']
-						handle.write(str(self.virus[virus].seq[start:stop]))
+						if entry['ori'] == '+':
+							handle.write(str(self.virus[virus].seq[start:stop]))
+						elif entry['ori'] == '-':
+							handle.write(str(self.virus[virus].seq[start:stop].reverse_complement()))
+						else:
+							raise ValueError(f"unregconised orientation {entry['ori']} in {entry}")
 					
 					else:
 						raise ValueError(f"unrecgonised model feature on chr {chr}: {entry}")
@@ -750,7 +754,7 @@ class Integrations(list):
 			for i, integration in enumerate(self):
 				assert integration.pos is not None
 				
-				# calculate start and stop position for this integration				
+				# calculate start and stop position for this integration			
 				left_start = integration.pos + previous_ints[integration.chr] - deleted_bases[integration.chr]
 				left_stop = left_start + integration.junc_props['n_junc'][0] 
 				
@@ -758,10 +762,12 @@ class Integrations(list):
 				right_stop = right_start + integration.junc_props['n_junc'][1] 
 				
 				# update previous_ints - total integrated bases
-				# are the integrated viral bases, and the bases in the gaps/overlaps
+				# are the integrated viral bases, and the bases in the gaps
 				previous_ints[integration.chr] += len(integration.chunk.bases)
-				previous_ints[integration.chr] += integration.junc_props['n_junc'][0]
-				previous_ints[integration.chr] += integration.junc_props['n_junc'][1]
+				if integration.junc_props['junc_types'][0] == 'gap':
+					previous_ints[integration.chr] += integration.junc_props['n_junc'][0]
+				if integration.junc_props['junc_types'][1] == 'gap':
+					previous_ints[integration.chr] += integration.junc_props['n_junc'][1]
 				
 				# update deleted_bases
 				deleted_bases[integration.chr] += integration.junc_props['host_del_len']
@@ -1068,7 +1074,8 @@ class Integration(dict):
 		self.junc_props['junc_bases'] = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
 		
 		# get a position at which to integrate
-		if self.get_int_position(host[self.chr].seq, rng, model) is False:
+		pos_success = self.get_int_position(host[self.chr].seq, rng, model)
+		if pos_success is False:
 			self.pos = None
 			return
 		
@@ -1094,7 +1101,6 @@ class Integration(dict):
 				break
 			
 		# double check for valid chunk
-
 		assert self.chunk.bases == self.chunk.get_bases(virus)
 		assert 'junc_bases' in self.junc_props
 		assert len(self.junc_props['junc_bases']) == 2
@@ -1152,7 +1158,7 @@ class Integration(dict):
 		'overlap' junctions place constraints on the integration location because the need
 		to be placed where there are overlaps
 		"""
-		
+
 		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
 		if all([True if (i in ['clean', 'gap']) else False for i in self.junc_props['junc_types']]):
 			self.pos = self.get_random_position(model, rng)
