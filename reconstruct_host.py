@@ -105,7 +105,7 @@ def main(argv):
 	host_stop = host_start + (int(row['leftStart']) - prev_right_stop)
 	compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop, f"bases at the end of chromosome {current_chr} (after integration {row['id']})")
 
-	print("finished checking")		
+	print("finished checking host")		
 			
 
 def compare_bases(host_chr, int_chr, host_start, host_stop, int_start, int_stop, type = ''):
