@@ -10,6 +10,7 @@ from Bio.SeqRecord import SeqRecord
 from sys import argv
 import argparse
 import pdb
+import re
 
 def main(argv):
 	#get arguments
@@ -36,66 +37,90 @@ def main(argv):
 	with open(args.int_info, newline = '') as csvfile:
 		reader = csv.DictReader(csvfile, delimiter = '\t')
 		for row in reader:
-
-			#print(f"checking row {row}\n")
 			
 			## if we're on a new chromosome
 			if row['chr'] != current_chr:
+			
+				# check between then end of the last integration and the end of the chromosome
+				int_start = prev_right_stop
+				int_stop = len(ints[current_chr])
+				
+				host_start = host_pos
+				host_stop = len(host[current_chr])
+				compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop, f"bases at the end of chromosome {current_chr} (after integration {row['id']})")
+			
+				# update for a new chromosome
 				host_pos = 0
-				int_pos = 0
-				prev_right_start = 0
-				prev_right_stop = 0
-				prev_right_overlap = 0
-				prev_deleted = 0
 				current_chr = row['chr']
+				prev_right_stop = 0
 				
-			## get left and right overlap types
-			left_overlap = row['juncTypes'].split(",")[0] == "overlap"
-			right_overlap = row['juncTypes'].split(",")[1] == "overlap"
-		
-			## get start and stop positions within integrated fasta
-			int_start = int_pos
 			
-			# if we have a left overlap, we need to include the junction bases
-			if left_overlap is True:
-				int_stop = int(row['leftStop'])
-			else:
-				int_stop = int(row['leftStart'])
-		
-			## get start and stop positions within host
+			## compare bases between the previous integration and this one
+			int_start = prev_right_stop
+			int_stop = int(row['leftStart'])
+			
 			host_start = host_pos
-			if left_overlap is True and prev_right_overlap is True:
-				expected_len = (int(row['leftStop']) - prev_right_start)
-			elif left_overlap is True:
-				expected_len = (int(row['leftStop']) - prev_right_stop)
-			elif prev_right_overlap is True:
-				expected_len = (int(row['leftStart']) - prev_right_start)
-			else:
-				expected_len = (int(row['leftStart']) - prev_right_stop)
+			host_stop = host_start + (int(row['leftStart']) - prev_right_stop)
+			host_pos = host_stop
+			compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop,  f"bases to the left of integration with id {row['id']}")
+			
+			## compare left overlap bases, if relevant
+			if row['juncTypes'].split(",")[0] == "overlap":	
+				# get coordinates in integrated fasta
+				int_start = int(row['leftStart'])
+				int_stop = int(row['leftStop'])
+			
+				# get coordinates in host fasta
+				host_start = host_pos
+				host_stop = host_start + int(row['juncLengths'].split(",")[0])
+				host_pos = host_stop
+			
+				# compare integrated and host bases				
+				compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop, f"left overlap for integration with id {row['id']}")
+		
+			
+			## compare right overlap bases, if relevant
+			if row['juncTypes'].split(",")[1] == "overlap":
+				# get coordinates in integrated fasta
+				int_start = int(row['rightStart'])
+				int_stop = int(row['rightStop'])
 				
-			host_stop = host_start + expected_len
+				# get coordinates in host fasta
+				host_start = host_pos
+				host_stop = host_start + int(row['juncLengths'].split(",")[1])
+				host_pos = host_stop
 			
-			
-			# compare bases
-			host_bases =  str(host[current_chr][host_start:host_stop].seq).lower()
-			int_bases = str(ints[current_chr][int_start:int_stop].seq).lower()
-			if host_bases != int_bases:
-				print(f"error with integration {row['id']}: host bases from {host_start} to {host_stop} were {host_bases}, integrated bases from {int_start} to {int_stop} were {int_bases}")
-			
-			
-			# update current positions
-			if right_overlap is True:
-				int_pos = int(row['rightStart'])
-			else:
-				int_pos = int(row['rightStop'])
-				
-			host_pos = host_stop + int(row['hDeleted'])
-				
-			prev_right_start = int(row['rightStart'])
+				# compare integrated and host bases				
+				compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop, f"right overlap for integration with id {row['id']}")
+		
+			## keep track of the end of the this integration, for evaluating the next one
+			host_pos = host_pos + int(row['hDeleted'])
 			prev_right_stop = int(row['rightStop'])
-			prev_right_overlap = right_overlap
 			
+	## compare the bases at the end of the last chromosome
+	int_start = prev_right_stop
+	int_stop = int(row['leftStart'])
 			
+	host_start = host_pos
+	host_stop = host_start + (int(row['leftStart']) - prev_right_stop)
+	compare_bases(host[current_chr], ints[current_chr], host_start, host_stop, int_start, int_stop, f"bases at the end of chromosome {current_chr} (after integration {row['id']})")
+
+	print("finished checking")		
+			
+
+def compare_bases(host_chr, int_chr, host_start, host_stop, int_start, int_stop, type = ''):
+	"""
+	compare host bases from host_start to host_stop to integrated bases from int_start to int_stop
+	"""
+
+	# get bases for host and integrated fasta chromosomes
+	host_bases = str(host_chr[host_start:host_stop].seq).lower()
+	int_bases = str(int_chr[int_start:int_stop].seq).lower()
+	
+	# compare
+	if host_bases != int_bases:
+		print(f"error with {type}: host bases from {host_start} to {host_stop} were {host_bases}, integrated bases from {int_start} to {int_stop} were {int_bases}")
+		
 	
 if __name__ == "__main__":
 	main(argv[1:])
