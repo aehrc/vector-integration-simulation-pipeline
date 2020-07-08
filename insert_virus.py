@@ -80,7 +80,7 @@ def main(argv):
 	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True)
 	
 	# add integrations
-	seqs.add_integrations(probs, args.int_num, max_attempts)	
+	seqs.add_integrations(probs, args.int_num, max_attempts)
 	seqs.add_episomes(probs, args.epi_num, max_attempts)
 	
 	
@@ -183,10 +183,11 @@ class Events(dict):
 		Add an Integrations object with int_num integrations, with types specified by probs,
 		to self
 		"""
+		
 		assert isinstance(max_attempts, int)
 		assert isinstance(epi_num, int)
 		assert max_attempts > 0
-		assert epi_num > 0
+		assert epi_num >= 0
 		
 		# can only add episomes once
 		if 'epis' in self:
@@ -223,11 +224,11 @@ class Events(dict):
 		"""
 
 		if 'ints' in vars(self):
-			assert len(self.ints) != 0
+			assert len(self.ints) >= 0
 			self.ints._Integrations__save_fasta(file, append = False)
 		
 		if 'epis' in vars(self):
-			assert len(self.epis) != 0
+			assert len(self.epis) >= 0
 			self.epis._Episomes__save_fasta(file, append = True)
 			
 		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
@@ -251,7 +252,7 @@ class Events(dict):
 		"""
 		save info about episomes to file
 		"""
-		assert len(self.epis) != 0
+		assert 'epis' in vars(self)
 		
 		self.epis._Episomes__save_info(file)
 		
@@ -921,7 +922,7 @@ class Episomes(Integrations):
 		 - n_delete: number of pieces deleted from chunk
 		
 		"""
-		assert len(self) > 0
+		assert len(self) >= 0
 		
 		# define header
 		
