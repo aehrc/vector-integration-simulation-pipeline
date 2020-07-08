@@ -292,6 +292,15 @@ df = pd.DataFrame(df_rows, columns = col_names)
 ################### target files ####################
 #####################################################
 
+wildcard_constraints:
+	virus="|".join(set(df.loc[:,'virus_name'])),
+	host="|".join(set(df.loc[:,'host_name'])),
+	exp="|".join(set(df.loc[:,'experiment'])),
+	outdir="|".join(set(df.loc[:,'out_directory'])),
+	cond="|".join(set(df.loc[:,'condition'])),
+	rep="|".join(set([str(i) for i in df.loc[:,'replicate']]))
+
+
 rule all:
 	input: 
 		expand("{outdir}/{exp}/experiment_summary.tsv", 
