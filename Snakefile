@@ -338,6 +338,10 @@ rule simulate_integrations:
 		sim_fasta = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.fa",
 		sim_info = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.int-info.tsv",
 		epi_info = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.epi-info.tsv",
+	conda:
+		"envs/simvi.yml"
+	container:
+		"docker://szsctt/simvi:1"
 	params:
 		int_num = lambda wildcards: get_parameter(wildcards, '--int_num', 'int_num'),
 		epi_num = lambda wildcards: get_parameter(wildcards, '--epi_num', 'epi_num'),
@@ -385,11 +389,13 @@ rule art:
 		sam = "-sam",
 		input = lambda wildcards, input: f"-i {input.sim_fasta}",
 		output = lambda wildcards, output: f"-o {path.splitext(output.sam)[0]}"
+	conda:
+		"envs/art.yml"
+	container:
+		"docker://szsctt/art:1"
 	shell:
 		"""
 		art_illumina {params}
 		"""
 		
-		
-			
 		
