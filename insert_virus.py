@@ -1,3 +1,29 @@
+#### simulates viral integrations ####
+
+#### written by Suzanne Scott (suzanne.scott@csiro.au) and Susie Grigson (susie.grigson@flinders.edu) ####
+
+# types of possible integrations:
+## whole viral genome (possibility for reverse orientation)
+## portion of viral genome (possibility for reverse orientation)
+## n sequential portions of viral genome, rearranged (with possibility that some are reversed)
+## n non-sequential (with a gap in between) portions of viral genome, rearranged (with possibility that some are reversed) (ie deletion)
+## portion of viral genome divided into n sequential portions of viral genome, rearranged 
+## poriton of viral genome divided into n non-sequential portions of viral genome and rearranged 
+
+# at each integration type, overlaps possible are gap, overlap, none
+## if gap, insert small number of random bases between host and virus
+## if overlap, take small (<=10) number of bases and look for homology, do integration there
+## if none, there is a 'clean' junction between virus and host
+
+# reports parameters of integrations:
+	#location in host genome (chr, start, stop)
+	#part of viral genome inserted (virus, start, stop)
+	#integration type (whole, portion, rearrangement, etc)
+	#overlaps/gaps at each junction 
+# reports all integration sites relative to the host genome, independent of other integrations
+# intergrations are stored internally though the Integration class
+
+
 ###import libraries
 from Bio import SeqIO
 from Bio.Alphabet.IUPAC import unambiguous_dna
@@ -1039,7 +1065,7 @@ class Integration(dict):
 		self.search_length_overlap = search_length_overlap
 		self.id = int_id
 	
-		# get random chromosome on which to do insertion
+		# get random chromosome on which to do integration
 		self.chr = str(rng.choice(list(host.keys())))
 		
 		# set minimum length for viral chunk - longer than the number of bases involved in the junction
