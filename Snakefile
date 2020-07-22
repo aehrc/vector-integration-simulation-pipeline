@@ -255,7 +255,7 @@ for exp in config:
 	# add other derived information
 	for i, row in enumerate(rows):
 	
-		# outdir
+		# outpath
 		row.append(config[exp]['out_directory'])
 		
 		# host_fasta
@@ -292,21 +292,12 @@ df = pd.DataFrame(df_rows, columns = col_names)
 ################### target files ####################
 #####################################################
 
-wildcard_constraints:
-	virus="|".join(set(df.loc[:,'virus_name'])),
-	host="|".join(set(df.loc[:,'host_name'])),
-	exp="|".join(set(df.loc[:,'experiment'])),
-	outdir="|".join(set(df.loc[:,'out_directory'])),
-	cond="|".join(set(df.loc[:,'condition'])),
-	rep="|".join(set([str(i) for i in df.loc[:,'replicate']]))
-
-
 rule all:
 	input: 
-		expand("{outdir}/{exp}/experiment_summary.tsv", 
+		expand("{outpath}/{exp}/experiment_summary.tsv", 
 			zip,
 			exp = list(config.keys()), # config is imported as ordered dict
-			outdir = [config[exp]['out_directory'] for exp in config.keys()]
+			outpath = [config[exp]['out_directory'] for exp in config.keys()]
 			),
 		df.loc[:,'read_sam_filename'],
 		
@@ -320,7 +311,7 @@ rule write_summary:
 	input:
 		list(ref_dict.values())
 	output:
-		tsv = "{outdir}/{exp}/experiment_summary.tsv"
+		tsv = "{outpath}/{exp}/experiment_summary.tsv"
 	run:
 		df[df['experiment'] == wildcards.exp].to_csv(output.tsv, sep='\t', index=False)
 
@@ -335,13 +326,15 @@ rule simulate_integrations:
 		host = lambda wildcards: ref_dict[wildcards.host],
 		virus =  lambda wildcards: ref_dict[wildcards.virus]
 	output:
-		sim_fasta = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.fa",
-		sim_info = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.int-info.tsv",
-		epi_info = "{outdir}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.epi-info.tsv",
+		sim_fasta = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.fa",
+		sim_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.int-info.tsv",
+		epi_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.epi-info.tsv",
 	conda:
 		"envs/simvi.yml"
 	container:
 		"docker://szsctt/simvi:1"
+	resources:
+		mem_mb=20000
 	params:
 		int_num = lambda wildcards: get_parameter(wildcards, '--int_num', 'int_num'),
 		epi_num = lambda wildcards: get_parameter(wildcards, '--epi_num', 'epi_num'),
@@ -358,7 +351,7 @@ rule simulate_integrations:
 		
 	shell:
 		"""
-		python3 insert_virus.py \
+		python3 scripts/insert_virus.py \
 		 --host {input.host} \
 		 --virus {input.virus} \
 		 --ints {output.sim_fasta} \
@@ -377,7 +370,7 @@ rule art:
 	input:
 		sim_fasta = rules.simulate_integrations.output.sim_fasta,
 	output:
-		sam = "{outdir}/{exp}/sim_reads/{cond}.{host}.{virus}.rep{rep}.sam"
+		sam = "{outpath}/{exp}/sim_reads/{cond}.{host}.{virus}.rep{rep}.sam"
 	params:
 		seq_sys = lambda wildcards: get_parameter(wildcards, '-ss', 'seq_sys'),
 		read_len = lambda wildcards: get_parameter(wildcards, '-l', 'read_len'),
@@ -393,6 +386,8 @@ rule art:
 		"envs/art.yml"
 	container:
 		"docker://szsctt/art:1"
+	resources:
+		mem_mb=20000
 	shell:
 		"""
 		art_illumina {params}
