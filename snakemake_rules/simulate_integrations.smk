@@ -8,7 +8,6 @@ rule write_summary:
 		df[df['experiment'] == wildcards.exp].to_csv(output.tsv, sep='\t', index=False)
 
 
-
 def get_parameter(wildcards, prefix, column_name):
 	unique = f"{wildcards.exp}__{wildcards.cond}__{wildcards.rep}"
 	value = df.loc[(df['unique'] == unique).idxmax(), column_name]
@@ -19,9 +18,9 @@ rule simulate_integrations:
 		host = lambda wildcards: ref_dict[wildcards.host],
 		virus =  lambda wildcards: ref_dict[wildcards.virus]
 	output:
-		sim_fasta = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.fa",
-		sim_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.int-info.tsv",
-		epi_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.epi-info.tsv",
+		sim_fasta = "{outpath}/{exp}/sim_ints/{cond}.rep{rep}.{host}.{virus}.fa",
+		sim_info = "{outpath}/{exp}/sim_ints/{cond}.rep{rep}.{host}.{virus}.int-info.tsv",
+		epi_info = "{outpath}/{exp}/sim_ints/{cond}.rep{rep}.{host}.{virus}.epi-info.tsv",
 	conda:
 		"../envs/simvi.yml"
 	container:

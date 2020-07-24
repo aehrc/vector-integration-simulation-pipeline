@@ -5,7 +5,7 @@ rule art:
 	input:
 		sim_fasta = rules.simulate_integrations.output.sim_fasta,
 	output:
-		sam = "{outpath}/{exp}/sim_reads/{cond}.{host}.{virus}.rep{rep}.sam"
+		sam = "{outpath}/{exp}/sim_reads/{cond}.rep{rep}.{host}.{virus}.sam"
 	params:
 		seq_sys = lambda wildcards: get_parameter(wildcards, '-ss', 'seq_sys'),
 		read_len = lambda wildcards: get_parameter(wildcards, '-l', 'read_len'),
@@ -28,4 +28,20 @@ rule art:
 		art_illumina {params}
 		"""
 		
-		
+rule convert:
+	input:
+		sam = rules.art.output.sam
+	output:
+		bam = "{outpath}/{exp}/sim_reads/{cond}.rep{rep}.{host}.{virus}.sorted.bam",
+		idx = "{outpath}/{exp}/sim_reads/{cond}.rep{rep}.{host}.{virus}.sorted.bam.bai"
+	conda:
+		"../envs/bwa.yml"
+	container:
+		"docker://szsctt/bwa:1"
+	resources:
+		mem_mb= lambda wildcards, attempt: attempt * 1000
+	shell:
+		"""
+		samtools sort -o {output.bam} {input.sam}
+		samtools index {output.bam}
+		"""
