@@ -24,7 +24,7 @@ rule simulate_integrations:
 	conda:
 		"../envs/simvi.yml"
 	container:
-		"docker://szsctt/simvi:1"
+		"docker://szsctt/simvi:2"
 	resources:
 		mem_mb= lambda wildcards, attempt: attempt * 5000
 	params:
