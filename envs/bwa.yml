@@ -1,0 +1,10 @@
+name: bwa
+channels:
+  - bioconda
+  - r
+  - defaults
+  - conda-forge
+dependencies:
+  - bwa=0.7.17
+  - samtools=1.10
+  - bedtools=2.29
