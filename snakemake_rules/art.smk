@@ -18,7 +18,7 @@ rule art:
 		input = lambda wildcards, input: f"-i {input.sim_fasta}",
 		output = lambda wildcards, output: f"-o {path.splitext(output.sam)[0]}"
 	conda:
-		"envs/art.yml"
+		"../envs/art.yml"
 	container:
 		"docker://szsctt/art:1"
 	resources:

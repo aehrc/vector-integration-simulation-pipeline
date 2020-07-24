@@ -23,7 +23,7 @@ rule simulate_integrations:
 		sim_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.int-info.tsv",
 		epi_info = "{outpath}/{exp}/sim_ints/{cond}.{host}.{virus}.rep{rep}.epi-info.tsv",
 	conda:
-		"envs/simvi.yml"
+		"../envs/simvi.yml"
 	container:
 		"docker://szsctt/simvi:1"
 	resources:
