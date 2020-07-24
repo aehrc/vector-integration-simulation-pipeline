@@ -3,8 +3,6 @@ import os
 
 # parse config file and create data frame containing parameters for running analysis (from config file)
 
-sys.path.append(os.path.join(os.getcwd(), "snakemake_rules/"))
-
 from snakemake_rules import parse_config
 
 config, df, ref_dict = parse_config(config)
