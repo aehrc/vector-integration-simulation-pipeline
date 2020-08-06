@@ -156,6 +156,7 @@ def parse_config(config):
 				 'sim_epi_info_filename',
 				 'read_sam_filename',
 				 'sorted_bam_filename',
+				 'annotated_info_filename',
 				 'unique'
 				 ]
 
@@ -223,6 +224,9 @@ def parse_config(config):
 			# sorted_bam_filename
 			row.append(f"{config[exp]['out_directory']}/{exp}/sim_reads/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.sorted.bam")
 	
+			# annotated_info_filename
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.int-info.annotated.tsv")
+			
 			# unique identifier
 			row.append(f"{row[0]}__{row[1]}__{row[2]}")
 	

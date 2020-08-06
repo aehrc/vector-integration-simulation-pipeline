@@ -19,7 +19,7 @@ rule all:
 			exp = list(config.keys()), # config is imported as ordered dict
 			outpath = [config[exp]['out_directory'] for exp in config.keys()]
 			),
-		df.loc[:,'sorted_bam_filename'],
+		df.loc[:,'annotated_info_filename'],
 		
 
 
@@ -32,3 +32,4 @@ include: "snakemake_rules/simulate_integrations.smk"
 
 include: "snakemake_rules/art.smk"
 
+include: "snakemake_rules/annotate_reads.smk"
