@@ -20,7 +20,7 @@ def main(argv):
 	parser.add_argument('--soft-threshold', help='threshold for amount of read that must be mapped when finding integrations in soft-clipped reads', type=int, default=20)
 	parser.add_argument('--mean-frag-len', help='mean framgement length used when simulating reads', type=int, default=500)
 	parser.add_argument('--sd-frag-len', help='standard devation of framgement length used when simulating reads', type=int, default=30)
-	parser.add_argument('--window-frac', help='fraction of the distribution of fragment sizes to use when searching for discordant read pairs', type=int, default=0.99)
+	parser.add_argument('--window-frac', help='fraction of the distribution of fragment sizes to use when searching for discordant read pairs', type=float, default=0.99)
 	parser.add_argument('--output', help='output file', required=False, default='results.tsv')
 	args = parser.parse_args()
 	
@@ -43,9 +43,9 @@ def main(argv):
 		for row in reader:
 			# pull out reads that cross the left junction
 			chr = row['chr']
-			left_start = int(row['leftStart'])
+			left_start = int(row['leftStart']) 
 			left_stop = int(row['leftStop'])
-			right_start = int(row['rightStart'])
+			right_start = int(row['rightStart']) 
 			right_stop = int(row['rightStop'])
 			
 			assert left_start >= 0 and right_start >= 0
@@ -61,7 +61,6 @@ def main(argv):
 			
 			# find discordant read pairs
 			window_width = window_size(args.mean_frag_len, args.sd_frag_len, args.window_frac)
-			
 			left_discord = get_discordant(chr, left_start, left_stop, samfile, args.soft_threshold, window_width)
 			right_discord = get_discordant(chr, right_start, right_stop, samfile, args.soft_threshold, window_width)
 			
@@ -103,9 +102,20 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 	reads = []
 	
 	# extract read pairs in the desired window
-	window_start = start - int(round(window_width / 2))
+	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
+	window_start = start - int(round(window_width / 2)) - 1
+	if window_start < 1:
+		
+		window_start = 1
+	
 	window_stop = stop + int(round(window_width / 2))
-	for read1, read2 in read_pair_generator(samfile, f"{chr}:{window_start}-{window_stop+1}"):
+	if window_stop > samfile.get_reference_length(chr):
+		window_stop = samfile.get_reference_length(chr) 
+	if window_stop == window_start:
+		window_stop += 1
+	
+	
+	for read1, read2 in read_pair_generator(samfile, f"{chr}:{window_start}-{window_stop}"):
 		# check mate is mapped
 		if read1.is_unmapped or read2.is_unmapped:
 			continue
@@ -115,9 +125,6 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 		# if this read is forward, mate must be reverse and vice versa
 		if (read1.is_reverse == read2.is_reverse):
 			continue
-			
-		if read1.qname == "chr3-56":
-			pdb.set_trace()
 		
 		# if the integration site falls between left_boundary and right_boundary
 		# (which are coordinates within the reference)
@@ -146,13 +153,13 @@ def get_soft(chr, start, stop, samfile, threshold):
 	reads = []
 	
 	# get reads that cross interval
-	for read in samfile.fetch(chr, start, stop +1):
+	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
+	# The same is true for any coordinates passed to the samtools command utilities directly, such as pysam.fetch().
+	for read in samfile.fetch(chr, start, stop + 1):
 		# check that interval is at least threshold bases from either end of the read
 		if check_threshold(read, start, stop, threshold) is False:
 			continue
 			
-		if read.qname == "chr3-56":
-			pdb.set_trace()
 			
 		reads.append(read.query_name + read_num(read))
 		
