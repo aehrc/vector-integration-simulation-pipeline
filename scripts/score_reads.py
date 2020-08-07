@@ -90,7 +90,8 @@ def main(argv):
 					# for each simulated integration, find read in analysis
 					side = int_id.split("_")[1]
 					type = int_id.split("_")[2]
-					read_analysis_matches = look_for_read_in_analysis(read.qname, sim_row['id'], analysis, analysis_reader, side, type)
+
+					read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, sim_row['id'], analysis, analysis_reader, side, type)
 			
 				# score read as true positive or false negative
 				if read_analysis_matches[0]['n_found'] > 0:
@@ -101,7 +102,7 @@ def main(argv):
 			# if read_sim_matches is empty it doesn't cross any integrations
 			# read is either false positve or true negative
 			else:
-				read_analysis_matches = look_for_read_in_analysis(read.qname, '', analysis, analysis_reader,  None, None)
+				read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, '', analysis, analysis_reader,  None, None)
 				# score read ase false positive or true negative
 				if read_analysis_matches[0]['n_found'] > 0:
 					read_scores['fp'] += 1
@@ -127,7 +128,7 @@ def main(argv):
 		
 		# accuracy = (TP + TN) / (TP + TN + FP + FN)
 		accuracy =  (read_scores['tn'] + read_scores['tp'] )/ sum([score for type, score in read_scores.items()])
-		print(f"balanced accuracy \n\t(TP + TN) / (TP + TN + FP + FN):\n\t{accuracy}")	
+		print(f"accuracy \n\t(TP + TN) / (TP + TN + FP + FN):\n\t{accuracy}")	
 		
 # 		sim.seek(0)
 # 		for sim_row in sim_reader:
@@ -187,12 +188,12 @@ def look_for_read_in_sim(readID, read_num, sim_filehandle, sim_reader):
 			
 	return sim_ints
 
-def look_for_read_in_analysis(readID, int_id, analysis_filehandle, analysis_reader, side, type):
+def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, analysis_reader, side, type):
 	"""
 	Given a read id from a row in the simulation results, try to find a corresponding row
 	in the analysis results
 	
-	Check whether read is on the same side (left or right) in analysis reuslts and simulated info
+	Check whether read is on the same side (left or right) in analysis results and simulated info
 	as well as if type (discordant or chimeric) is the same
 	"""
 	
@@ -202,7 +203,7 @@ def look_for_read_in_analysis(readID, int_id, analysis_filehandle, analysis_read
 	assert type in ['chimeric', 'discord', None]
 	
 	# dictionary to store matches for this read
-	sim_matches = {'readID' : readID,
+	sim_matches = {'readID' : f"{readID}/{read_num}",
 					'intID' : int_id,
 					'found' : False,
 					'n_found' : 0,
@@ -211,12 +212,18 @@ def look_for_read_in_analysis(readID, int_id, analysis_filehandle, analysis_read
 					}
 	matches = []
 	
+	# if the type is chimeric, the read ID might have /1 or /2 appended
+	# if this pair wasn't merged
+	readIDs = [readID]
+	if type == 'chimeric':
+		readIDs.append(f"{readID}/{read_num}")
+	
 	# look through rows of analysis for matches
 	analysis_filehandle.seek(0)
 	for analysis_row in analysis_reader:
 	
 		# check for the correct readID
-		if readID == analysis_row['ReadID']:
+		if analysis_row['ReadID'] in readIDs:
 				
 			sim_matches['found'] = True
 			sim_matches['n_found'] = 1
