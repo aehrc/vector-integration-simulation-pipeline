@@ -134,15 +134,15 @@ def main(argv):
 # 			# to store the results that we find for each simulated integration
 # 			
 # 			# find reads that we're looking for in analysis results
-# 			left_soft = sim_row['left_soft'].split(";")
-# 			for read in left_soft:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'left', type='soft')
+# 			left_chimeric = sim_row['left_chimeric'].split(";")
+# 			for read in left_chimeric:
+# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'left', type='chimeric')
 # 				for result in results:
 # 					output_writer.writerow(result)
 # 				
-# 			right_soft = sim_row['right_soft'].split(";")
-# 			for read in right_soft:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'right', type='soft')
+# 			right_chimeric = sim_row['right_chimeric'].split(";")
+# 			for read in right_chimeric:
+# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'right', type='chimeric')
 # 				for result in results:
 # 					output_writer.writerow(result)
 # 			
@@ -171,12 +171,12 @@ def look_for_read_in_sim(readID, read_num, sim_filehandle, sim_reader):
 	sim_filehandle.seek(0)
 	for sim_row in sim_reader:
 		
-		# look in soft
-		if f"{readID}/{read_num}" in sim_row['left_soft'].split(";"):
-			sim_ints[f"{sim_row['id']}_left_soft"] = dict(sim_row)
+		# look in chimeric
+		if f"{readID}/{read_num}" in sim_row['left_chimeric'].split(";"):
+			sim_ints[f"{sim_row['id']}_left_chimeric"] = dict(sim_row)
 		
-		if f"{readID}/{read_num}" in sim_row['right_soft'].split(";"):
-			sim_ints[f"{sim_row['id']}_right_soft"] = dict(sim_row)
+		if f"{readID}/{read_num}" in sim_row['right_chimeric'].split(";"):
+			sim_ints[f"{sim_row['id']}_right_chimeric"] = dict(sim_row)
 			
 		# look in discordant
 		if readID in sim_row['left_discord'].split(";"):
@@ -192,13 +192,14 @@ def look_for_read_in_analysis(readID, int_id, analysis_filehandle, analysis_read
 	Given a read id from a row in the simulation results, try to find a corresponding row
 	in the analysis results
 	
-	Only consider the read to be found if the side and type also match
+	Check whether read is on the same side (left or right) in analysis reuslts and simulated info
+	as well as if type (discordant or chimeric) is the same
 	"""
 	
 	# side and type will be None if the read wasn't found in the simulation information
 	# but we're looking for it anyway in the analysis results
 	assert side in ['left', 'right', None]
-	assert type in ['soft', 'discord', None]
+	assert type in ['chimeric', 'discord', None]
 	
 	# dictionary to store matches for this read
 	sim_matches = {'readID' : readID,
@@ -233,7 +234,7 @@ def look_for_read_in_analysis(readID, int_id, analysis_filehandle, analysis_read
 			if analysis_row['OverlapType'] == 'discordant':
 				analysis_type = 'discord'
 			elif analysis_row['OverlapType'] in ['gap', 'overlap', 'none']:
-				analysis_type = 'soft'
+				analysis_type = 'chimeric'
 			else:
 				raise ValueError(f'unknown OverlapType in analysis results for read {readID}')
 			sim_matches['type'] = (analysis_type == type)
