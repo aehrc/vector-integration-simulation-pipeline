@@ -1,4 +1,9 @@
-# Score simulated vs detected integrations
+#!/usr/bin/env python3
+
+# Score simulated vs detected integrations on a per-integration basis
+
+# do this by counting the number of lines in analysis-info file that 
+# fall within a specified window around each integration in sim-info file
 
 from sys import argv
 import argparse
