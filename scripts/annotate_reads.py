@@ -35,7 +35,7 @@ def main(argv):
 		# use csv to read and write files
 		reader = csv.DictReader(info_file, delimiter = '\t')
 		
-		writer_fieldnames = list(reader.fieldnames) + ['left_soft', 'right_soft', 'left_discord', 'right_discord', 'both_discord']
+		writer_fieldnames = list(reader.fieldnames) + ['left_chimeric', 'right_chimeric', 'left_discord', 'right_discord', 'both_discord']
 		
 		writer = csv.DictWriter(output, delimiter = '\t', fieldnames = writer_fieldnames)
 		writer.writeheader()
@@ -52,22 +52,22 @@ def main(argv):
 			
 			print(f"finding reads for integration {row['id']}")
 
-			# find soft-clipped reads
-			left_soft = get_soft(chr, left_start, left_stop, samfile, args.soft_threshold)
-			right_soft = get_soft(chr, right_start, right_stop, samfile, args.soft_threshold)
+			# find chimeric reads
+			left_chimeric = get_chimeric(chr, left_start, left_stop, samfile, args.soft_threshold)
+			right_chimeric = get_chimeric(chr, right_start, right_stop, samfile, args.soft_threshold)
 			
-			row['left_soft'] = ";".join(left_soft)
-			row['right_soft'] = ";".join(right_soft)
+			row['left_chimeric'] = ";".join(left_chimeric)
+			row['right_chimeric'] = ";".join(right_chimeric)
 			
 			# find discordant read pairs
 			window_width = window_size(args.mean_frag_len, args.sd_frag_len, args.window_frac)
 			left_discord = get_discordant(chr, left_start, left_stop, samfile, args.soft_threshold, window_width)
 			right_discord = get_discordant(chr, right_start, right_stop, samfile, args.soft_threshold, window_width)
 			
-			# if a read is both soft-clipped and discordant, soft-clipped takes priority
+			# if a read is both chimeric and discordant, chimeric takes priority
 
-			left_soft, left_discord = remove_soft_from_discord(left_soft, left_discord)
-			right_soft, right_discord = remove_soft_from_discord(right_soft, right_discord)
+			left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
+			right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
 					
 			# if a read crosses both the left and right boundaries, it will just be human-human and won't be picked up
 			both_discord = []
@@ -145,7 +145,7 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 	
 	return reads
 	
-def get_soft(chr, start, stop, samfile, threshold):
+def get_chimeric(chr, start, stop, samfile, threshold):
 	"""
 	find reads that cross an interval defined as chr:start-stop in samfile
 	the interval must be at least threshold bases from the start and end of the read
@@ -267,18 +267,18 @@ def read_pair_generator(bam, region_string=None):
                 yield read_dict[qname][0], read
             del read_dict[qname]
             
-def remove_soft_from_discord(soft, discord):
+def remove_chimeric_from_discord(chimeric, discord):
 	"""
-	check for read ids that are in both soft and discord - remove them from discord if they're in both
+	check for read ids that are in both chimeric and discord - remove them from discord if they're in both
 	"""
-	# soft-clipped reads have /1 or /2 added
-	soft = [read[:-2] for read in soft]
+	# chimeric reads have /1 or /2 added
+	chimeric = [read[:-2] for read in chimeric]
 	for i, read in enumerate(discord):
-		if read in soft:
-			print(f"  removed a read that was in both soft and discord: {discord[i]}")
+		if read in chimeric:
+			print(f"  removed a read that was in both chimeric and discord: {discord[i]}")
 			del discord[i]
 			
-	return soft, discord
+	return chimeric, discord
 
 if __name__ == "__main__":
 	main(argv[1:])
