@@ -130,12 +130,16 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 		# (which are coordinates within the reference)
 		# this pair crosses the integration site
 		if read1.is_reverse is False:
-			left_boundary = get_boundary(read1, threshold, side = "left")
-			right_boundary =  get_boundary(read2, threshold, side = "right")
+			left_boundary = get_boundary(read1, threshold, side = "right")
+			right_boundary =  get_boundary(read2, threshold, side = "left")
 		else:
-			left_boundary = get_boundary(read2, threshold, side = "left")
-			right_boundary =  get_boundary(read1, threshold, side = "right")
-
+			left_boundary = get_boundary(read2, threshold, side = "right")
+			right_boundary =  get_boundary(read1, threshold, side = "left")
+		
+		# if left_boundary is greater than right_boundary, reads overlap
+		if left_boundary >= right_boundary:
+			continue
+		
 		assert left_boundary is not None
 		assert right_boundary is not None
 		assert left_boundary < right_boundary
@@ -214,22 +218,21 @@ def get_boundary(read, threshold, side = "left"):
 	"""
 	assert isinstance(threshold, int)
 	assert threshold >= 0
+	assert threshold <= read.qlen
 	assert side in ['left', 'right']
-	if side == "left":
-		aligned_pairs = reversed(read.get_aligned_pairs())
-	else:
-		aligned_pairs = read.get_aligned_pairs()
+		
+	aligned_pairs = read.get_aligned_pairs()
 	
-	for pair in aligned_pairs:
-		# for left side, we want to check if we're at least threshold bases
-		# before the end of the read
-		if side == "left":
-			if ((read.qlen - pair[0] - 1) >= threshold) and (pair[1] is not None):
-				return pair[1]
-		# for the right side, we want to be at least threshold bases i
-		else:
-			if (pair[0] >= threshold) and (pair[1] is not None):
-				return pair[1]
+	# if we want to look on the right hand side, we need to look backwards through the aligned pairs
+	if side == "right":
+		aligned_pairs = list(reversed(aligned_pairs))
+	
+	# iterate over bases in aligned_pairs, starting from the threshold value
+	for pair in aligned_pairs[threshold:]:
+		# check the base is aligned
+		if (pair[1] is not None):
+			return pair[1]
+
 		
 def within(start1, stop1, start2, stop2):
 	"""
