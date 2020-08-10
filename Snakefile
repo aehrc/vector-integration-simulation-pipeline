@@ -14,7 +14,7 @@ config, df, ref_dict = parse_config(config)
 
 rule all:
 	input: 
-		expand("{outpath}/{exp}/experiment_summary.tsv", 
+		expand("{outpath}/{exp}/simulation_summary.tsv", 
 			zip,
 			exp = list(config.keys()), # config is imported as ordered dict
 			outpath = [config[exp]['out_directory'] for exp in config.keys()]

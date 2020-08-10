@@ -210,22 +210,22 @@ def parse_config(config):
 			row.append(config[exp]['initial_seed'] + i * config[exp]['seed_increment'])
 	
 			# sim_fa_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.fa")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.fa")
 	
 			# sim_int_info_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.int-info.tsv")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.int-info.tsv")
 	
 			# sim_epi_info_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.epi-info.tsv")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.epi-info.tsv")
 	
 			# read_sam_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_reads/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.sam")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_reads/{row[1]}.rep{row[2]}.sam")
 			
 			# sorted_bam_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_reads/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.sorted.bam")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_reads/{row[1]}.rep{row[2]}.sorted.bam")
 	
 			# annotated_info_filename
-			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.{row[3]}.{row[4]}.int-info.annotated.tsv")
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.int-info.annotated.tsv")
 			
 			# unique identifier
 			row.append(f"{row[0]}__{row[1]}__{row[2]}")
