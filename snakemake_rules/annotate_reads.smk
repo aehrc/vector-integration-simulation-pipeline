@@ -3,7 +3,7 @@ rule annotate_reads:
 		sam = rules.convert.output.bam,
 		info = rules.simulate_integrations.output.sim_info
 	output:
-		annotated_info = "{outpath}/{exp}/sim_ints/{cond}.rep{rep}.int-info.annotated.tsv",
+		annotated_info = "{outpath}/{exp}/sim_ints/{samp}.int-info.annotated.tsv",
 	conda:
 		"../envs/simvi.yml"
 	container:
