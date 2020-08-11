@@ -39,10 +39,14 @@ def main(argv):
 	results = []
 	
 	# import simulated and pipeline information	
+	print(f"opening simulated information: {args.sim_info}")
+	print(f"opening analysis information: {args.analysis_info}")
 	with open(args.sim_info, newline = '') as sim, open(args.analysis_info, newline='') as analysis, open(args.output, "w", newline = '') as outfile:
 		
 		# open bam file 
+		print(f"opening sam file: {args.sim_bam}")
 		samfile = pysam.AlignmentFile(args.sim_bam)
+		
 		
 		# create DictReader objects for inputs
 		sim_reader = csv.DictReader(sim, delimiter = '\t')
