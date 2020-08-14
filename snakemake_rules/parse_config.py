@@ -157,8 +157,8 @@ def parse_config(config):
 				 'read_sam_filename',
 				 'sorted_bam_filename',
 				 'annotated_info_filename',
-				 'unique',
-				 'sample'
+				 'sample',
+				 'unique'
 				 ]
 
 
@@ -228,11 +228,13 @@ def parse_config(config):
 			# annotated_info_filename
 			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.int-info.annotated.tsv")
 			
-			# unique identifier
-			row.append(f"{row[0]}__{row[1]}.{row[2]}")
-			
 			# sample name: combination of condition and replicate
-			row.append(f"{row[1]}.{row[2]}")
+			sample = f"{row[1]}.rep{row[2]}"
+			row.append(sample)
+			
+			# unique identifier
+			row.append(f"{row[0]}__{sample}")
+
 	
 			df_rows.append(row)
 
