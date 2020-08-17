@@ -34,6 +34,7 @@ def main(argv):
 	parser.add_argument('--analysis-info', help='information from analysis of simulated reads', required = True, type=str)
 	parser.add_argument('--sim-bam', help='bam file from ART with simulated reads', required=True, type=str)
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
+	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 	args = parser.parse_args()
 	
 	results = []
@@ -133,37 +134,16 @@ def main(argv):
 		# accuracy = (TP + TN) / (TP + TN + FP + FN)
 		accuracy =  (read_scores['tn'] + read_scores['tp'] )/ sum([score for type, score in read_scores.items()])
 		print(f"accuracy \n\t(TP + TN) / (TP + TN + FP + FN):\n\t{accuracy}")	
-		
-# 		sim.seek(0)
-# 		for sim_row in sim_reader:
-# 			# to store the results that we find for each simulated integration
-# 			
-# 			# find reads that we're looking for in analysis results
-# 			left_chimeric = sim_row['left_chimeric'].split(";")
-# 			for read in left_chimeric:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'left', type='chimeric')
-# 				for result in results:
-# 					output_writer.writerow(result)
-# 				
-# 			right_chimeric = sim_row['right_chimeric'].split(";")
-# 			for read in right_chimeric:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'right', type='chimeric')
-# 				for result in results:
-# 					output_writer.writerow(result)
-# 			
-# 			left_discord = sim_row['left_discord'].split(";")
-# 			for read in left_discord:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'right', type='discord')
-# 				for result in results:
-# 					output_writer.writerow(result)
-# 				
-# 			right_discord = sim_row['right_discord'].split(";")
-# 			for read in right_discord:
-# 				results = look_for_read_in_analysis(read, sim_row, analysis, analysis_reader, side = 'right', type='discord')
-# 				for result in results:
-# 					output_writer.writerow(result)		
+				
 				
 	print(f"saved results to {args.output}")
+	
+	# write summary of tp, tn, fp, fn
+	with open(args.output_summary, "w") as outfile:
+		outfile.write("\t".join(['sim_info_file', 'sim_bam_file', 'analysis_info_file', 'results_file', 
+														'true_positives', 'true_negatives', 'false_positives', 'false_negatives']) + '\n')
+		outfile.write('\t'.join([args.sim_info, args.sim_bam, args.analysis_info, args.output, 
+															str(read_scores['tp']), str(read_scores['tn']), str(read_scores['fp']), str(read_scores['fn'])]) + '\n')
 
 def look_for_read_in_sim(readID, read_num, sim_filehandle, sim_reader):
 	"""
