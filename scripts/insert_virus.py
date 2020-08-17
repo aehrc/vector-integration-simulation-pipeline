@@ -1382,12 +1382,13 @@ class Integration(dict):
 		# adjust breakpoints 		
 		deleted_bases = 0
 		to_delete = []
-		i = 0
+		i = len(self.chunk.pieces) - 1 # start at the last piece in the chunk
 		while deleted_bases < n:
+			assert i >= 0
 			# if we're left with a piece of length 0, flag this piece for deletion
 			if self.chunk.pieces[i][0] == self.chunk.pieces[i][1]:
 				to_delete.append(i)
-				i += 1
+				i -= 1
 			# if this piece is a forward piece
 			if self.chunk.oris[i] == "+":
 				# delete one base
