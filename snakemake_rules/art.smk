@@ -22,7 +22,9 @@ rule art:
 	container:
 		"docker://szsctt/art:1"
 	resources:
-		mem_mb= lambda wildcards, attempt: attempt * 5000
+		mem_mb= lambda wildcards, attempt: attempt * 10000,
+		time = "24:00:00",
+		nodes = 1
 	shell:
 		"""
 		art_illumina {params}
@@ -39,7 +41,9 @@ rule convert:
 	container:
 		"docker://szsctt/bwa:1"
 	resources:
-		mem_mb= lambda wildcards, attempt: attempt * 1000
+		mem_mb= lambda wildcards, attempt: attempt * 5000,
+		time = "24:00:00",
+		nodes = 1
 	shell:
 		"""
 		samtools sort -o {output.bam} {input.sam}
