@@ -24,6 +24,7 @@
 # intergrations are stored internally though the Integration class
 
 
+
 ###import libraries
 from Bio import SeqIO
 from Bio.Alphabet.IUPAC import unambiguous_dna
@@ -194,6 +195,7 @@ class Events(dict):
 			print(f"performing {int_num} integrations")
 		counter = 0
 		while len(self.ints) < int_num:
+			print(f"performing integration {len(self.ints)}")
 			if self.ints.add_integration() is False:
 				counter += 1
 			# check for too many attempts
@@ -418,6 +420,8 @@ class Integrations(list):
 				return n
 			counter += 1
 			if counter > self.max_attempts:
+				print(f"warning: too many attempts to get value with minimum {min} and maximum {max} from poisson distribution with mean {lambda_poisson}")
+				
 				return None
 					
 	def add_integration(self):
@@ -426,10 +430,25 @@ class Integrations(list):
 		"""
 			
 		# call functions that randomly set properties of this integrations
-		chunk_props = self.set_chunk_properties()
+		counter = 0
+		while True:
+			chunk_props = self.set_chunk_properties()
+			if len(chunk_props) != 0:
+				break
+			counter += 1
+			if counter > self.max_attempts:
+				raise ValueError("too many attempts to set chunk properties")
 		assert len(chunk_props) == 4
 			
-		junc_props = self.set_junc_properties()
+		counter = 0
+		while True:
+			junc_props = self.set_junc_properties()
+			if len(junc_props) != 0:
+				break
+			counter += 1
+			if counter > self.max_attempts:
+				raise ValueError("too many attempts to set junction properties")
+		
 		assert len(junc_props) == 4
 
 		# make an integration
@@ -477,6 +496,8 @@ class Integrations(list):
 			n_left_junc = 0
 		elif junc_props['junc_types'][0] in ['gap', 'overlap']:
 			n_left_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 1)
+			if n_left_junc is None:
+				return {}
 		else:
 			return {}
 			
@@ -485,6 +506,8 @@ class Integrations(list):
 			n_right_junc = 0
 		elif junc_props['junc_types'][1] in ['gap', 'overlap']:
 			n_right_junc = self.poisson_with_minimum_and_maximum(self.probs['lambda_junction'], min = 1)
+			if n_right_junc is None:
+				return {}
 		else:
 			return {}
 		
@@ -505,6 +528,8 @@ class Integrations(list):
 		# if we're doing a host deletion, get number of bases to be deleted
 		if junc_props['host_del'] is True:
 			junc_props['host_del_len'] = self.poisson_with_minimum_and_maximum(self.probs['lambda_host_del'], min = 1)
+			if junc_props['host_del_len'] is None:
+				return {}
 		elif junc_props['host_del'] is False:
 			junc_props['host_del_len'] = 0
 		else:
@@ -540,7 +565,6 @@ class Integrations(list):
 		is_delete = bool(self.rng.choice(a = [True, False], p = [self.probs['p_delete'], p_not_delete]))
 		
 		# get number of fragments - ignored if both isDelete and isRearrange are both False
-		
 		# must have at least two pieces for a rearrangment, or three for a deletion
 		min_split = 1
 		if is_rearrange is True:
@@ -566,6 +590,8 @@ class Integrations(list):
 		# if we're doing a rearrangement, get the number of swaps to make
 		if is_rearrange is True:
 			chunk_props['n_swaps'] = self.poisson_with_minimum_and_maximum(self.probs['lambda_split'], min = 1)
+			if chunk_props['n_swaps'] is None:
+				return {}
 		else:
 			chunk_props['n_swaps'] = 0
 			
