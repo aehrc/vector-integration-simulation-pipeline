@@ -7,12 +7,12 @@ rule art:
 	output:
 		sam = "{outpath}/{exp}/sim_reads/{samp}.sam"
 	params:
-		seq_sys = lambda wildcards: get_parameter(wildcards, '-ss', 'seq_sys'),
-		read_len = lambda wildcards: get_parameter(wildcards, '-l', 'read_len'),
-		fcov = lambda wildcards: get_parameter(wildcards, '-f', 'fcov'),
-		frag_len = lambda wildcards: get_parameter(wildcards, '-m', 'frag_len'),
-		frag_std = lambda wildcards: get_parameter(wildcards, '-s', 'frag_std'),
-		seed = lambda wildcards: get_parameter(wildcards, '--rndSeed', 'random_seed'),
+		seq_sys = lambda wildcards: format_parameter(wildcards, '-ss', 'seq_sys'),
+		read_len = lambda wildcards: format_parameter(wildcards, '-l', 'read_len'),
+		fcov = lambda wildcards: format_parameter(wildcards, '-f', 'fcov'),
+		frag_len = lambda wildcards: format_parameter(wildcards, '-m', 'frag_len'),
+		frag_std = lambda wildcards: format_parameter(wildcards, '-s', 'frag_std'),
+		seed = lambda wildcards: format_parameter(wildcards, '--rndSeed', 'random_seed'),
 		paried = "-p",
 		sam = "-sam",
 		input = lambda wildcards, input: f"-i {input.sim_fasta}",
