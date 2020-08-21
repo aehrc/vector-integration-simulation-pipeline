@@ -39,6 +39,7 @@ import pdb
 import csv
 import re
 import pprint
+import time
 
 ###
 max_attempts = 50 #maximum number of times to try to place an integration site 
@@ -139,7 +140,7 @@ class Events(dict):
 		
 		# check and import fasta files
 		if self.verbose is True:
-			print("importing host fasta")
+			print("importing host fasta", flush=True)
 	
 		# read host fasta - use index which doesn't load sequences into memory because host is large genome
 		if self.checkFastaExists(host_fasta_path, fasta_extensions):
@@ -148,10 +149,10 @@ class Events(dict):
 			raise OSError("Could not open host fasta")
 		
 		if self.verbose is True:
-			print(f"imported host fasta with {len(self.host)} chromosomes:")
+			print(f"imported host fasta with {len(self.host)} chromosomes:", flush=True)
 			host_chrs = {key:len(self.host[key]) for key in self.host.keys()}
 			for key, length in host_chrs.items():
-				print(f"\thost chromosome '{key}' with length {length}") 
+				print(f"\thost chromosome '{key}' with length {length}", flush=True)
 	
 		# read virus fasta -  make dictionary in memory of sequences
 		if self.checkFastaExists(virus_fasta_path, fasta_extensions):
@@ -163,11 +164,11 @@ class Events(dict):
 			raise OSError("Could not open virus fasta")
 
 		if self.verbose is True:
-			print(f"imported virus fasta with {len(self.virus)} sequences:")
+			print(f"imported virus fasta with {len(self.virus)} sequences:", flush=True)
 			virus_seqs = {key:len(self.virus[key]) for key in self.virus.keys()}
 			for key, length in virus_seqs.items():
-				print(f"\tviral sequence '{key}' with length {length}") 
-				
+				print(f"\tviral sequence '{key}' with length {length}", flush=True)
+			
 		# instantiate random number generator
 		self.rng = np.random.default_rng(seed)
 		
@@ -180,31 +181,31 @@ class Events(dict):
 		assert isinstance(max_attempts, int)
 		assert isinstance(int_num, int)
 		assert max_attempts > 0
-		assert int_num > 0
+		assert int_num >= 0
 		
 		# can only add integrations once
 		if 'ints' in self:
 			raise ValueError("integrations have already been added to this Events object") # is there a better error type for this?
 			
 		# instantiate Integrations object
-		print(f"integration {len(self)}")
 		self.ints = Integrations(self.host, self.virus, probs, self.rng, max_attempts)
 		
 		# add int_num integrations
 		if self.verbose is True:
-			print(f"performing {int_num} integrations")
+			print(f"performing {int_num} integrations", flush=True)
 		counter = 0
 		while len(self.ints) < int_num:
-			print(f"performing integration {len(self.ints)}")
+			t0 = time.time()
 			if self.ints.add_integration() is False:
 				counter += 1
 			# check for too many attempts
 			if counter > max_attempts:
 				raise ValueError('too many failed attempts to add integrations')
-		
+			t1 = time.time()
+			print(f"added integration {len(self.ints)} in {(t1-t0):.2f}s", flush=True)
 		# if we had fewer than 50% of our attempts left
 		if (counter / max_attempts) > 0.5:
-			print(f"warning: there were {counter} failed integrations")
+			print(f"warning: there were {counter} failed integrations", flush=True)
 				
 	def add_episomes(self, probs, epi_num, max_attepmts = 50):
 		"""
@@ -226,13 +227,16 @@ class Events(dict):
 		
 		# add epi_num episomes
 		if self.verbose is True:
-			print(f"adding {epi_num} episomes")
+			print(f"adding {epi_num} episomes", flush=True)
 		counter = 0
 		while len(self.epis) < epi_num:
+			t0 = time.time()
 			if self.epis.add_episome() is False:
 				counter += 1
 			if counter > max_attempts:
 				raise ValueError('too many failed attempts to add episomes')
+			t1 = time.time()
+			print(f"added episome {len(self.epis)} in {(t1-t0):.10f}s", flush=True)
 			
 	def checkFastaExists(self, file, fasta_extensions):
 		#check file exists
@@ -256,36 +260,37 @@ class Events(dict):
 			self.ints._Integrations__save_fasta(file, append = False)
 		
 		if 'epis' in vars(self):
-			assert len(self.epis) >= 0
+			assert len(self.epis) > 0
 			self.epis._Episomes__save_fasta(file, append = True)
 			
 		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
-			print("warning: no integrations or episomes have been added")
+			print("warning: no integrations or episomes have been added" , flush=True)
 			
 		if self.verbose is True:
-			print(f"saved fasta with integrations and episomes to {file}")
+			print(f"saved fasta with integrations and episomes to {file}", flush=True)
 			
 	def save_integrations_info(self, file):
 		"""
 		save info about integrations to file
 		"""
-		assert len(self.ints) != 0
+		assert len(self.ints) >= 0
 		
 		self.ints._Integrations__save_info(file)
 		
 		if self.verbose is True:
-			print(f"saved inforamtion about integrations to {file}")
+			print(f"saved inforamtion about integrations to {file}", flush=True)
 		
 	def save_episomes_info(self, file):
 		"""
 		save info about episomes to file
 		"""
 		assert 'epis' in vars(self)
+		assert len(self.epis) > 0
 		
 		self.epis._Episomes__save_info(file)
 		
 		if self.verbose is True:
-			print(f"saved information about episomes to {file}")
+			print(f"saved information about episomes to {file}", flush=True)
 		
 class Integrations(list):
 	"""
@@ -420,7 +425,7 @@ class Integrations(list):
 				return n
 			counter += 1
 			if counter > self.max_attempts:
-				print(f"warning: too many attempts to get value with minimum {min} and maximum {max} from poisson distribution with mean {lambda_poisson}")
+				print(f"warning: too many attempts to get value with minimum {min} and maximum {max} from poisson distribution with mean {lambda_poisson}", flush=True)
 				
 				return None
 					
@@ -430,6 +435,7 @@ class Integrations(list):
 		"""
 			
 		# call functions that randomly set properties of this integrations
+		t0 = time.time()
 		counter = 0
 		while True:
 			chunk_props = self.set_chunk_properties()
@@ -439,7 +445,10 @@ class Integrations(list):
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set chunk properties")
 		assert len(chunk_props) == 4
+		t1=time.time()
+		print(f"set chunk properties in {t1-t0}s", flush=True)
 			
+		t0 = time.time()
 		counter = 0
 		while True:
 			junc_props = self.set_junc_properties()
@@ -448,10 +457,13 @@ class Integrations(list):
 			counter += 1
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set junction properties")
+		t1=time.time()
+		print(f"set junction properties in {t1-t0}s", flush=True)
 		
 		assert len(junc_props) == 4
 
 		# make an integration
+		t0 = time.time()
 		integration = Integration(self.host, 
 								  self.virus,
 								  model = self.model,
@@ -460,6 +472,8 @@ class Integrations(list):
 								  chunk_props = chunk_props,
 								  junc_props = junc_props
 								  )
+		t1 = time.time()
+		print(f"made integration in {t1-t0}s", flush=True)
 		
 		# append to self if nothing went wrong with this integration
 		if integration.chunk.pieces is not None:
@@ -468,7 +482,10 @@ class Integrations(list):
 				
 				self.append(integration)
 				
+				t0 = time.time()
 				self.__update_model(integration)
+				t1 = time.time()
+				print(f"updated model in {t1-t0}s")
 				
 				return True
 				
