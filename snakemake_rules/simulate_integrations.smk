@@ -28,8 +28,8 @@ rule simulate_integrations:
 	container:
 		"docker://szsctt/simvi:2"
 	resources:
-		mem_mb= lambda wildcards, attempt, input: attempt * 5 * int((path.getsize(input.host)/1000000)) + get_parameter(wildcards, 'int_num') * 100 + get_parameter(wildcards, 'epi_num') * 100,
-		time = "24:00:00",
+		mem_mb= lambda wildcards, attempt, input: attempt * ( 5 * int((path.getsize(input.host)/1000000)) + int(get_parameter(wildcards, 'int_num')) * 50 + int(get_parameter(wildcards, 'epi_num')) * 10),
+		time = lambda wildcards, attempt: f"{attempt*24}:00:00",
 		nodes = 1
 	params:
 		int_num = lambda wildcards: format_parameter(wildcards, '--int_num', 'int_num'),
