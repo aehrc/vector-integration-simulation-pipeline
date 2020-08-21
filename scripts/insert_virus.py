@@ -203,6 +203,7 @@ class Events(dict):
 				raise ValueError('too many failed attempts to add integrations')
 			t1 = time.time()
 			print(f"added integration {len(self.ints)} in {(t1-t0):.2f}s", flush=True)
+			print()
 		# if we had fewer than 50% of our attempts left
 		if (counter / max_attempts) > 0.5:
 			print(f"warning: there were {counter} failed integrations", flush=True)
@@ -230,13 +231,11 @@ class Events(dict):
 			print(f"adding {epi_num} episomes", flush=True)
 		counter = 0
 		while len(self.epis) < epi_num:
-			t0 = time.time()
 			if self.epis.add_episome() is False:
 				counter += 1
 			if counter > max_attempts:
 				raise ValueError('too many failed attempts to add episomes')
-			t1 = time.time()
-			print(f"added episome {len(self.epis)} in {(t1-t0):.10f}s", flush=True)
+
 			
 	def checkFastaExists(self, file, fasta_extensions):
 		#check file exists
@@ -435,7 +434,6 @@ class Integrations(list):
 		"""
 			
 		# call functions that randomly set properties of this integrations
-		t0 = time.time()
 		counter = 0
 		while True:
 			chunk_props = self.set_chunk_properties()
@@ -445,10 +443,7 @@ class Integrations(list):
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set chunk properties")
 		assert len(chunk_props) == 4
-		t1=time.time()
-		print(f"set chunk properties in {t1-t0}s", flush=True)
 			
-		t0 = time.time()
 		counter = 0
 		while True:
 			junc_props = self.set_junc_properties()
@@ -457,8 +452,6 @@ class Integrations(list):
 			counter += 1
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set junction properties")
-		t1=time.time()
-		print(f"set junction properties in {t1-t0}s", flush=True)
 		
 		assert len(junc_props) == 4
 
@@ -619,12 +612,16 @@ class Integrations(list):
 		update self.model for a new integration 
 		"""
 		# find segment in which integration should occur
+		t0 = time.time()
 		for i, seg in enumerate(self.model[integration.chr]):
 			if seg['origin'] != 'host':
 				continue
 			if integration.pos >= seg['coords'][0] and integration.pos <= seg['coords'][1]:
 				break
+		t1 = time.time()
+		print(f"found segment in model that integration should ocurr in in {t1-t0}s")
 		
+		t0 = time.time()
 		# remove this element from the list
 		seg = self.model[integration.chr].pop(i)
 		host_start = seg['coords'][0]
@@ -632,7 +629,10 @@ class Integrations(list):
 		left_overlap_bases = integration.junc_props['n_junc'][0] if integration.junc_props['junc_types'][0] == 'overlap' else 0
 		right_overlap_bases = integration.junc_props['n_junc'][1] if integration.junc_props['junc_types'][1] == 'overlap' else 0
 		overlap_bases = left_overlap_bases + right_overlap_bases
+		t1 = time.time()
+		print(f"removed segment in {t1-t0}s")
 		
+		t0 = time.time()
 		# create host segment before this integration and add to list
 		host = {'origin' : 'host', 'seq_name' : integration.chr, 'ori' : '+'}
 		
@@ -644,7 +644,10 @@ class Integrations(list):
 		assert host['coords'][1] > host['coords'][0]
 		self.model[integration.chr].insert(i, host)
 		i += 1
+		t1 = time.time()
+		print(f"added left host segment in {t1-t0}s")
 		
+		t0 = time.time()
 		# if we have ambiguous bases at the left junction, add these to the list too
 		assert len(integration.junc_props['junc_bases'][0]) == integration.junc_props['n_junc'][0]
 		if integration.junc_props['junc_types'][0] in ['gap', 'overlap']:
@@ -668,7 +671,10 @@ class Integrations(list):
 			assert ambig['coords'][1] > ambig['coords'][0]
 			self.model[integration.chr].insert(i, ambig)
 			i += 1
-		
+		t1 = time.time()
+		print(f"added left junction segment in {t1-t0}s")
+
+		t0 = time.time()
 		# add each piece of the viral chunk too
 		for j in range(len(integration.chunk.pieces)):
 			virus = {'origin': 'virus', 
@@ -678,7 +684,11 @@ class Integrations(list):
 			assert virus['coords'][1] > virus['coords'][0]
 			self.model[integration.chr].insert(i, virus)
 			i += 1
+		
+		t1 = time.time()
+		print(f"added viral segments in {t1-t0}s")
 			
+		t0 = time.time()	
 		# if we have ambiguous bases at the right junction, add these
 		assert len(integration.junc_props['junc_bases'][1]) == integration.junc_props['n_junc'][1]
 		if integration.junc_props['junc_types'][1] in ['gap', 'overlap']:
@@ -709,9 +719,15 @@ class Integrations(list):
 			assert ambig['coords'][1] > ambig['coords'][0]
 			self.model[integration.chr].insert(i, ambig)
 			i += 1
+		
+		t1 = time.time()
+		print(f"added right ambiguous bases in {t1-t0}s")
+		
 			
 		# finally, add second portion of host
+		t0 = time.time()
 		host = {'origin': 'host', 'seq_name': integration.chr, 'ori': '+'}
+		
 		
 		# accounting for bases deleted from the host and overlaps
 		# note that integration.pos is always to the left of any overlapped bases, so here is where we need to account for them
@@ -721,6 +737,10 @@ class Integrations(list):
 		self.model[integration.chr].insert(i, host)
 		i += 1		
 		
+		t1 = time.time()
+		print(f"added host bases in {t1-t0}s")
+		
+		t0 = time.time()
 		# check model is still valid
 		for chr in self.model.keys():
 			host_pos = 0
@@ -743,6 +763,8 @@ class Integrations(list):
 						host_bases = str(self.host[chr][seg['coords'][0]:seg['coords'][1]].seq).lower()
 						seg_bases = seg['bases'].lower()
 						assert host_bases == seg_bases
+		t1 = time.time()
+		print(f"checked model validity in {t1-t0}s")
 	
 	def __save_fasta(self, filename, append = False):
 		"""
