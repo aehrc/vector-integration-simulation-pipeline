@@ -42,7 +42,7 @@ import pprint
 import time
 
 ###
-max_attempts = 50 #maximum number of times to try to place an integration site 
+max_attempts = 100 #maximum number of times to try to place an integration site 
 
 default_ints = 5
 default_epi = 0
@@ -87,6 +87,7 @@ def main(argv):
 	parser.add_argument('--epi_info', help = 'output tsv with info about episomes', type=str, default="episomes.tsv")	
 	parser.add_argument('--seed', help = 'seed for random number generator', default=12345, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
+	parser.add_argument('--model-check', help = 'check integration model every new integration', action="store_true")
 	args = parser.parse_args()
 	
 	#### generate integrations ####		
@@ -108,7 +109,7 @@ def main(argv):
 	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True)
 	
 	# add integrations
-	seqs.add_integrations(probs, args.int_num, max_attempts)
+	seqs.add_integrations(probs, args.int_num, max_attempts, args.model_check)
 	seqs.add_episomes(probs, args.epi_num, max_attempts)
 	
 	
@@ -172,7 +173,7 @@ class Events(dict):
 		# instantiate random number generator
 		self.rng = np.random.default_rng(seed)
 		
-	def add_integrations(self, probs, int_num, max_attempts = 50):
+	def add_integrations(self, probs, int_num, max_attempts = 50, model_check = False):
 		"""
 		Add an Integrations object with int_num integrations, with types specified by probs,
 		to self
@@ -284,7 +285,7 @@ class Events(dict):
 		save info about episomes to file
 		"""
 		assert 'epis' in vars(self)
-		assert len(self.epis) > 0
+		assert len(self.epis) >= 0
 		
 		self.epis._Episomes__save_info(file)
 		
@@ -320,7 +321,7 @@ class Integrations(list):
 	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
 	
 	"""
-	def __init__(self, host, virus, probs, rng, max_attempts=50):
+	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False):
 		"""
 		Function 
 		to initialise Integrations object
@@ -329,7 +330,9 @@ class Integrations(list):
 		# checks for inputs
 		assert isinstance(virus, dict)
 		assert isinstance(probs, dict)
+		assert isinstance(max_attempts, int)
 		assert max_attempts > 0
+		assert isinstance(model_check, bool)
 		
 		# assign properties common to all integrations
 		self.host = host
@@ -337,6 +340,7 @@ class Integrations(list):
 		self.probs = probs
 		self.rng = rng
 		self.max_attempts = max_attempts
+		self.model_check = model_check
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -612,14 +616,11 @@ class Integrations(list):
 		update self.model for a new integration 
 		"""
 		# find segment in which integration should occur
-		t0 = time.time()
 		for i, seg in enumerate(self.model[integration.chr]):
 			if seg['origin'] != 'host':
 				continue
 			if integration.pos >= seg['coords'][0] and integration.pos <= seg['coords'][1]:
 				break
-		t1 = time.time()
-		print(f"found segment in model that integration should ocurr in in {t1-t0}s")
 		
 		t0 = time.time()
 		# remove this element from the list
@@ -629,10 +630,7 @@ class Integrations(list):
 		left_overlap_bases = integration.junc_props['n_junc'][0] if integration.junc_props['junc_types'][0] == 'overlap' else 0
 		right_overlap_bases = integration.junc_props['n_junc'][1] if integration.junc_props['junc_types'][1] == 'overlap' else 0
 		overlap_bases = left_overlap_bases + right_overlap_bases
-		t1 = time.time()
-		print(f"removed segment in {t1-t0}s")
 		
-		t0 = time.time()
 		# create host segment before this integration and add to list
 		host = {'origin' : 'host', 'seq_name' : integration.chr, 'ori' : '+'}
 		
@@ -644,10 +642,9 @@ class Integrations(list):
 		assert host['coords'][1] > host['coords'][0]
 		self.model[integration.chr].insert(i, host)
 		i += 1
-		t1 = time.time()
-		print(f"added left host segment in {t1-t0}s")
+
 		
-		t0 = time.time()
+
 		# if we have ambiguous bases at the left junction, add these to the list too
 		assert len(integration.junc_props['junc_bases'][0]) == integration.junc_props['n_junc'][0]
 		if integration.junc_props['junc_types'][0] in ['gap', 'overlap']:
@@ -671,10 +668,7 @@ class Integrations(list):
 			assert ambig['coords'][1] > ambig['coords'][0]
 			self.model[integration.chr].insert(i, ambig)
 			i += 1
-		t1 = time.time()
-		print(f"added left junction segment in {t1-t0}s")
 
-		t0 = time.time()
 		# add each piece of the viral chunk too
 		for j in range(len(integration.chunk.pieces)):
 			virus = {'origin': 'virus', 
@@ -684,9 +678,6 @@ class Integrations(list):
 			assert virus['coords'][1] > virus['coords'][0]
 			self.model[integration.chr].insert(i, virus)
 			i += 1
-		
-		t1 = time.time()
-		print(f"added viral segments in {t1-t0}s")
 			
 		t0 = time.time()	
 		# if we have ambiguous bases at the right junction, add these
@@ -720,12 +711,8 @@ class Integrations(list):
 			self.model[integration.chr].insert(i, ambig)
 			i += 1
 		
-		t1 = time.time()
-		print(f"added right ambiguous bases in {t1-t0}s")
-		
 			
 		# finally, add second portion of host
-		t0 = time.time()
 		host = {'origin': 'host', 'seq_name': integration.chr, 'ori': '+'}
 		
 		
@@ -737,11 +724,17 @@ class Integrations(list):
 		self.model[integration.chr].insert(i, host)
 		i += 1		
 		
-		t1 = time.time()
-		print(f"added host bases in {t1-t0}s")
+		if self.model_check is True:
+			self.__check_model()
 		
+	
+	def __check_model(self):
+		"""
+		check model is valid by checking various properties
+		"""
+		n_ints = 0
+		next_int = True
 		t0 = time.time()
-		# check model is still valid
 		for chr in self.model.keys():
 			host_pos = 0
 			for seg in self.model[chr]:
@@ -749,12 +742,16 @@ class Integrations(list):
 				assert seg['origin'] in ('host', 'virus', 'ambig')
 				assert 'seq_name' in seg
 				if seg['origin'] == 'host':
+					next_int = True
 					assert seg['seq_name'] == chr
 					assert seg['ori'] == '+'
 					# check that host position is only increasing
 					assert seg['coords'][0] >= host_pos
 					host_pos = seg['coords'][1]
-				elif seg['origin'] == 'virus':	
+				elif seg['origin'] == 'virus':
+					if next_int is True:
+						n_ints += 1
+						next_int = False	
 					assert seg['seq_name'] in list(self.virus.keys())
 				elif seg['origin'] == 'ambig':
 					assert 'bases' in seg
@@ -763,8 +760,10 @@ class Integrations(list):
 						host_bases = str(self.host[chr][seg['coords'][0]:seg['coords'][1]].seq).lower()
 						seg_bases = seg['bases'].lower()
 						assert host_bases == seg_bases
+			assert n_ints == len(self)
 		t1 = time.time()
-		print(f"checked model validity in {t1-t0}s")
+		print(f"model has length {len(self.model)}")
+		print(f"checked model validity in {t1-t0}s")	
 	
 	def __save_fasta(self, filename, append = False):
 		"""
@@ -838,6 +837,7 @@ class Integrations(list):
 		previous_ints = {key:0 for key in self.host.keys()}
 		deleted_bases = {key:0 for key in self.host.keys()}
 		
+		self.__check_model()
 		self.sort()
 			
 		with open(filename, "w", newline='') as csvfile:
