@@ -15,7 +15,7 @@
 
 
 from sys import argv
-from os import path
+from os import path, SEEK_CUR
 from scipy.stats import norm
 from collections import defaultdict
 import argparse
@@ -23,6 +23,8 @@ import csv
 import pysam
 
 import pdb
+
+genome_length = int(3e9)
 
 def main(argv):
 	#get arguments
@@ -33,7 +35,7 @@ def main(argv):
 	parser.add_argument('--mean-frag-len', help='mean framgement length used when simulating reads', type=int, default=500)
 	parser.add_argument('--sd-frag-len', help='standard devation of framgement length used when simulating reads', type=int, default=30)
 	parser.add_argument('--window-frac', help='fraction of the distribution of fragment sizes to use when searching for discordant read pairs', type=float, default=0.99)
-	parser.add_argument('--output', help='output file', required=False, default='results.tsv')
+	parser.add_argument('--output', help='output file', required=False, default='annotated.tsv')
 	args = parser.parse_args()
 	
 	# read in bam/sam file
@@ -53,22 +55,18 @@ def main(argv):
 		writer.writeheader()
 		
 		
-		# set window size for looking for discodant pairs and 
+		# set window size for looking for discordant pairs and 
 		# looking for multiple ints with the same discordant pair
 		window_width = window_size(args.mean_frag_len, args.sd_frag_len, args.window_frac)
 		
 		# create a buffer of integrations that all fall within this window width 
+		buffer = [next(reader)]
 		while True:
 
-			buffer = get_ints_in_window(window_width, reader)
+			buffer, next_buffer = get_ints_in_window(buffer, window_width, reader, info_file)
 			
-			# check if we've reached the end of the file
-			if len(buffer) == 0:
-				break
-		
 			# find reads crossing each integration in the buffer
-			buffer = [find_reads_crossing_ints(row, samfile, args, window_width)
-						for row in buffer]
+			buffer = find_reads_crossing_ints(buffer, samfile, args, window_width)
 		
 			# check for read pairs that cross multiple junctions
 			buffer = find_multiple_discordant(buffer)
@@ -76,6 +74,12 @@ def main(argv):
 			# write rows in buffer
 			for row in buffer:
 				writer.writerow(row)
+			
+			buffer = next_buffer
+			
+			# check if we've reached the end of the file
+			if len(buffer) == 0:
+				break
 		
 	samfile.close()
 	
@@ -138,6 +142,8 @@ def find_multiple_discordant(buffer):
 			else:
 				seen[read] = {'int_id' : row['id'], 'side' : 'right', 'buffer_row' : i}
 		
+		
+		print(multiples)
 		# add extra keys to dicts 
 		row['multiple_discord'] = []
 		row['fake_discord'] = []
@@ -183,7 +189,7 @@ def times_already_found(read, multiples):
 	else:
 		return 0
 	
-def find_reads_crossing_ints(row, samfile, args, window_width):
+def find_reads_crossing_ints(buffer, samfile, args, window_width):
 	"""
 	find reads crossing the integration site, and add them to the row
 	reads crossing the integration site can be chimeric about the left or right junction
@@ -191,75 +197,82 @@ def find_reads_crossing_ints(row, samfile, args, window_width):
 	if they're discordant about both junctions, they actually go from host sequence to host sequence
 	and	therefore aren't actually discordant
 	"""
+	for row in buffer:
+		
+		# get information about integration site location
+		chr = row['chr']
+		left_start = int(row['leftStart']) 
+		left_stop = int(row['leftStop'])
+		right_start = int(row['rightStart']) 
+		right_stop = int(row['rightStop'])
 	
-	# get information about integration site location
-	chr = row['chr']
-	left_start = int(row['leftStart']) 
-	left_stop = int(row['leftStop'])
-	right_start = int(row['rightStart']) 
-	right_stop = int(row['rightStop'])
+		assert left_start >= 0 and right_start >= 0
 	
-	assert left_start >= 0 and right_start >= 0
-	
-	print(f"finding reads for integration {row['id']}")
+		print(f"finding reads for integration {row['id']}")
 
-	# find chimeric reads
-	left_chimeric = get_chimeric(chr, left_start, left_stop, samfile, args.soft_threshold)
-	right_chimeric = get_chimeric(chr, right_start, right_stop, samfile, args.soft_threshold)
+		# find chimeric reads
+		left_chimeric = get_chimeric(chr, left_start, left_stop, samfile, args.soft_threshold, buffer)
+		right_chimeric = get_chimeric(chr, right_start, right_stop, samfile, args.soft_threshold, buffer)
 	
-	row['left_chimeric'] = ";".join(left_chimeric)
-	row['right_chimeric'] = ";".join(right_chimeric)
+		row['left_chimeric'] = ";".join(left_chimeric)
+		row['right_chimeric'] = ";".join(right_chimeric)
 	
-	# find discordant read pairs
+		# find discordant read pairs	
+		left_discord = get_discordant(chr, left_start, left_stop, samfile, args.soft_threshold, window_width, buffer)
+		right_discord = get_discordant(chr, right_start, right_stop, samfile, args.soft_threshold, window_width, buffer)
 	
-	left_discord = get_discordant(chr, left_start, left_stop, samfile, args.soft_threshold, window_width)
-	right_discord = get_discordant(chr, right_start, right_stop, samfile, args.soft_threshold, window_width)
-	
-	# if a read is both chimeric and discordant, chimeric takes priority 
-	# (but it shouldn't be both if the clipping threshold is the same for both read types)
-	left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
-	right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
+		# if a read is both chimeric and discordant, chimeric takes priority 
+		# (but it shouldn't be both if the clipping threshold is the same for both read types)
+		#left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
+		#right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
 			
-	row['left_discord'] = ";".join(left_discord)
-	row['right_discord'] = ";".join(right_discord)
+		row['left_discord'] = ";".join(left_discord)
+		row['right_discord'] = ";".join(right_discord)
 	
-	return row	
+	return buffer	
 			
-def get_ints_in_window(window_width, reader):
+def get_ints_in_window(buffer, window_width, reader, reader_handle):
 	"""
 	get a list of integrations (dicts corresponding to one row from the int-info file)
 	that are within window_width of each other
 	"""	
-	
-	buffer = []
 		
-	# get first integration, unless we're at the end of the file
-	try:
-		first_row = next(reader)
-	except StopIteration:
-		return buffer
+	assert len(buffer) == 1
 	
-	first_stop = int(first_row['rightStop'])
-	last_start = int(first_row['rightStop'])
-	first_chr = first_row['chr']
-	last_chr = first_row['chr']
-	buffer.append(first_row)
+	# get position and chromosome from buffer
+	start = int(buffer[0]['rightStop'])
+	chr = buffer[0]['chr']
 	
 	# get more integraions until we're not in the window anymore or we're at the end of the file
-	while (last_start - first_stop < window_width) and (first_chr == last_chr):
-	
+	# to avoid having to go back a line, save the first line not added to 'next_buffer'
+	while True:	
+		
+		# get next row
 		try:
 			row = next(reader)
-			last_start = int(row['leftStart'])
-			last_chr = row['chr']
-			buffer.append(row)
 		except StopIteration:
-			break	
+			next_buffer = []
+			break
 		
+		# compare previous integration with this integration
+		prev_start = start
+		prev_chr = chr
+		start =  int(row['leftStart'])
+		chr = row['chr']
 		
-	return buffer		
+		# check if next row is a window width away
+		if (start - prev_start < window_width) and prev_chr == chr:
+			# add to buffer
+			buffer.append(row)
+			start = int(row['rightStop'])
+		else:
+			# don't add the row but this will be the start of the next buffer
+			next_buffer = [row]
+			break
 
-def get_discordant(chr, start, stop, samfile, threshold, window_width):
+	return buffer, next_buffer	
+
+def get_discordant(chr, start, stop, samfile, threshold, window_width, buffer):
 	"""
 	Get any discordant read pairs which cross an integration site
 	In other words, get pairs where one mate is mapped on the host side, and the other on the virus side
@@ -270,6 +283,15 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 	Avoid an exhaustive search by extracting only the reads in a window around the integration site
 	Set this window based on the mean length and standard deviation of fragment size used in simulation
 	and the fraction of the fragment length distribution we want to cover.
+	
+	Note that a read pair might have one integration fall between read1 and read2, but read1 or read2
+	might also cross a second integration.  This pair is therefore both discordant about one integration, and
+	also one member of the pair is chimeric  A consequence of this is that one read maps only to vector or host, 
+	but the other maps to both.  This discordant pair cannot currently be detected, since
+	the pipeline currently detects discordant read-pairs only if one read is mapped to vector and
+	not host, and vice versa for the other read.  However, this pair really is evidence
+	for integration at the first site (as a discordant read-pair), so include it in the
+	output as such.
 	"""
 	
 	reads = []
@@ -319,11 +341,83 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width):
 		assert left_boundary < right_boundary
 		
 		if within(start, stop, left_boundary, right_boundary):
+			
 			reads.append(read1.qname)
+# 			
+# 			# TODO - need to decide if integrations should be excluded on the basis
+# 			# below (if it's not the case that one read is mapped to host and the other to virus)
+# 			# these events can't be currently detected in the pipeline, but are real evidence
+# 			# of integration, so for now include them in the output
+# 
+# 			r1_mapped = get_mapped_ref(read1, buffer, threshold)
+# 			r2_mapped = get_mapped_ref(read2, buffer, threshold)
+# 			
+# 			assert r1_mapped['host'] or r1_mapped['virus']
+# 			assert r2_mapped['host'] or r2_mapped['virus']
+# 			
+# 			if r1_mapped['host'] != r2_mapped['host'] and r1_mapped['virus'] != r2_mapped['virus']:
+# 				reads.append(read1.qname)
 	
 	return reads
 	
-def get_chimeric(chr, start, stop, samfile, threshold):
+def get_mapped_ref(read, buffer, threshold):
+	"""
+	figure out if each read in this read pair will be mapped to host or vector/virus
+	returns a dict with the keys 'host' and 'virus',
+	and values True or False depending on if the read is mapped to either or not
+	"""
+	
+	assert read.is_unmapped is False
+	
+	read_mapped = {'host':False, 'virus':False, 'int' : []}
+	
+	# get first and last position to which read is mapped in reference
+	first = read.get_reference_positions()[0]
+	last =  read.get_reference_positions()[-1]
+	
+	prev_start = 0
+	for row in buffer:
+		# figure out if we need to include the ambiguous bases or not
+		if row['juncTypes'].split(',')[0] == 'gap':
+			left_host_junc = int(row['leftStart'])
+			left_virus_junc = int(row['leftStop'])
+		else:
+			left_host_junc = int(row['leftStop'])
+			left_virus_junc = int(row['leftStart'])
+		if row['juncTypes'].split(',')[1] == 'gap':
+			right_virus_junc = int(row['rightStart'])
+			right_host_junc = int(row['rightStop'])
+		else:
+			right_virus_junc = int(row['rightStop'])
+			right_host_junc = int(row['rightStart'])	
+
+		# if read is between the start of the chromosome and the start of the integration
+		if intersects(first, last, prev_start, left_host_junc):
+			# check we have at least threshold bases mapped
+			if check_threshold(read, prev_start, left_host_junc, threshold):
+				read_mapped['host']  = True
+		# if read is between the left and right junctions
+		if intersects(first, last, left_virus_junc, right_virus_junc):
+			if check_threshold(read, left_virus_junc, right_virus_junc, threshold):
+				read_mapped['virus'] = True
+				read_mapped['int'].append(row['id'])
+		prev_start = right_host_junc
+		
+		# if the prev_start is to the right of the position of the last mapped base in the read
+		# then we don't need to continue
+		if prev_start > last:
+			break
+		
+				
+	# check if read is between the end of the last integration and the end of the chromosome
+	# don't know what the end of the chromosome is, so just use a large number (genome_length)
+	if intersects(first, last, prev_start, genome_length):
+		if check_threshold(read, prev_start, genome_length, threshold):
+			read_mapped['host'] = True
+	
+	return read_mapped	
+	
+def get_chimeric(chr, start, stop, samfile, threshold, buffer):
 	"""
 	find reads that cross an interval defined as chr:start-stop in samfile
 	the interval must be at least threshold bases from the start and end of the read
@@ -334,12 +428,14 @@ def get_chimeric(chr, start, stop, samfile, threshold):
 	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
 	# The same is true for any coordinates passed to the samtools command utilities directly, such as pysam.fetch().
 	for read in samfile.fetch(chr, start, stop + 1):
+		
 		# check that interval is at least threshold bases from either end of the read
-		if check_threshold(read, start, stop, threshold) is False:
-			continue
-			
-			
-		reads.append(read.query_name + read_num(read))
+		mapped = get_mapped_ref(read, buffer, threshold)
+		assert (mapped['host'] or mapped['virus'])
+		
+		if mapped['host'] is True and mapped['virus'] is True:
+		
+			reads.append(read.query_name + read_num(read))
 		
 	return reads
 	
@@ -356,13 +452,16 @@ def read_num(read):
 		
 def check_threshold(read, start, stop, threshold):
 	""""
-	check that there are least threshold bases between an integration site (defined by start and stop)
-	and the start and end of the read
+	check that there are least threshold bases that map to an interval (defined by start and stop)
 	"""
 	
-	if (start - read.get_reference_positions()[0]) < threshold:
+	rstart = read.get_reference_positions()[0]
+	rstop = read.get_reference_positions()[-1]
+	assert intersects(rstart, rstop, start, stop)
+	
+	if (rstop - start) < threshold:
 		return False
-	if (read.get_reference_positions()[-1] - stop) < threshold:
+	if (stop - rstart) < threshold:
 		return False
 		
 	return True
@@ -414,11 +513,37 @@ def within(start1, stop1, start2, stop2):
 	"""	
 	assert start1 <= stop1
 	assert start2 <= stop2
+	assert isinstance(start1, int)
+	assert isinstance(start2, int)
+	assert isinstance(stop1, int)
+	assert isinstance(stop2, int)
 	
 	if start1 >= start2 and stop1 <= stop2:
 		return True
 	else:
 		return False
+		
+def intersects(start1, stop1, start2, stop2):
+	"""
+	compare two intervals, each with a start and stop value
+	return true if the first interval is intersects the second
+	"""	
+	assert start1 <= stop1
+	assert start2 <= stop2
+	assert isinstance(start1, int)
+	assert isinstance(start2, int)
+	assert isinstance(stop1, int)
+	assert isinstance(stop2, int)
+	
+	# if first interval is completely to the left of the second interval
+	if stop1 < start2:
+		return False
+	# if first interval is completely to the right of the second interval
+	if start1 > stop2:
+		return False
+		
+	# otherwise, they intersect
+	return True	
 
 def read_pair_generator(bam, region_string=None):
     """
