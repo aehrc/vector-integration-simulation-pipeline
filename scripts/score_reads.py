@@ -29,11 +29,6 @@ from sys import argv
 from os import cpu_count
 import argparse
 import csv
-<<<<<<< HEAD
-import pysam
-import time
-=======
->>>>>>> 3cc2b3a74b03994cf694e8f1554c67c00e1d58cf
 import pdb
 import pprint
 import multiprocessing as mp
