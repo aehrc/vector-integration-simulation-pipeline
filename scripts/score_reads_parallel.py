@@ -30,6 +30,9 @@ import argparse
 import csv
 import pysam
 import pdb
+import pprint
+import multiprocessing as mp
+import functools
 import time
 
 def main(argv):
@@ -37,7 +40,8 @@ def main(argv):
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--sim-info', help='information from simulation with reads annotated', required = True, type=str)
 	parser.add_argument('--analysis-info', help='information from analysis of simulated reads', required = True, type=str)
-	parser.add_argument('--sim-bam', help='bam file from ART with simulated reads', required=True, type=str)
+	parser.add_argument('--sim-sam', help='sam file from ART with simulated reads (must not be binary!)', required=True, type=str)
+	parser.add_argument('--host-threshold', help='maximum distance an integration can be from where it should be before a read is scored as incorrect', type=int, default=5)	
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 
@@ -62,119 +66,230 @@ def main(argv):
 		for row in analysis_reader:
 			analysis_info.append(row)
 		
-	with open(args.output, "w", newline = '') as outfile:
+	print(f"opening sam file: {args.sim_sam}")
+	with open(args.output, "w", newline = '') as outfile, open(args.sim_sam) as samfile:
 		
-		# open bam file 
-		print(f"opening sam file: {args.sim_bam}")
-		samfile = pysam.AlignmentFile(args.sim_bam)
 		
 		# create DictWriter object for output
+		score_types = ['found_score', 'host_score', 'virus_score']
+		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
+					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
+					'host_start_dist', 'host_stop_dist', 'correct_virus', 'virus_start_dist',
+					'virus_stop_dist', 'ambig_diff']
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-										fieldnames = ['readID', 'intID', 'score', 'found', 'n_found',
-										'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
-										'host_start_dist', 'host_stop_dist', 'correct_virus', 'virus_start_dist',
-										'virus_stop_dist', 'ambig_diff']
-										)
-
+										fieldnames = header)
 		
 		output_writer.writeheader()
 		
 		# keep count of true and false positives and negatives
 		read_scores = {'tp':0, 'tn':0, 'fp':0, 'fn':0}
+		read_scores  = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
+		
 		read_count = 0
 		
 		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
-		for read in samfile:
+		pool = mp.Pool()
 		
+		# callback function for pool can only take one argument, so use functools.Partial
+		# to provide read_scores and outfile handle
+		callback_func = functools.partial(get_results, output_writer, read_scores)
+		
+		for line in samfile:
+		
+			# skip header lines
+			if line[0] == '@':
+				continue
+			else:
+				read = get_read_properties(line)
+			
 			read_count += 1
 			
 			# score read
-			read_analysis_matches = score_read(read, sim_info, analysis_info)
+			#results = score_read(read, sim_info, analysis_info, args)
+			res = pool.apply_async(score_read, 
+									args = (line, sim_info, analysis_info, args), 
+									callback = callback_func
+								   )
+			#read_analysis_matches = res.get()
 			
 			# get results
-			read_scores = get_results(read_analysis_matches, output_writer, read_scores)
-			
-	print(f"scored {read_count} reads, which were scored: {read_scores}")
-
-	# recall/sensitvity/true positive rate = (TP)/(TP + FN) - fraction of correct positives
-	recall = (read_scores['tp'])/(read_scores['tp'] + read_scores['fn'])
-	print(f"true positive rate (TPR/recall/sensitivity)\n\tfraction of all positives that are true positives:\n\t{recall}")
+			#callback_func(read_analysis_matches)
 		
-	# specificity/selectivity/true negative rate = (TN)/(TN + FP) - fraction of correct positives
-	specificity = (read_scores['tn'])/(read_scores['tn'] + read_scores['fp'])
-	print(f"true negative rate (TNR/specificity/selectivity)\n\tfraction of all negatives that are true negatives:\n\t{specificity}")
-		
-	# balanced accuracy = (TPR + TNR) / 2	
-	print(f"balanced accuracy \n\t(TPR + TNR) / 2:\n\t{(specificity + recall) / 2}")
-		
-	# accuracy = (TP + TN) / (TP + TN + FP + FN)
-	accuracy =  (read_scores['tn'] + read_scores['tp'] )/ sum([score for type, score in read_scores.items()])
-	print(f"accuracy \n\t(TP + TN) / (TP + TN + FP + FN):\n\t{accuracy}")	
-						
+		pool.close()
+		pool.join()
+	#print(f"\nscored {read_count} reads, which were scored: ")
+	pp = pprint.PrettyPrinter(indent = 2)
+	pp.pprint(read_scores)
+	
+	write_output_summary(outfile, read_scores, args)
 	print(f"saved results to {args.output}")
-	
-	# write summary of tp, tn, fp, fn
-	with open(args.output_summary, "w") as outfile:
-		outfile.write("\t".join(['sim_info_file', 'sim_bam_file', 'analysis_info_file', 'results_file', 
-														'true_positives', 'true_negatives', 'false_positives', 'false_negatives']) + '\n')
-		outfile.write('\t'.join([args.sim_info, args.sim_bam, args.analysis_info, args.output, 
-															str(read_scores['tp']), str(read_scores['tn']), str(read_scores['fp']), str(read_scores['fn'])]) + '\n')
 
-def get_results(read_analysis_matches, output_writer, read_scores):
+def get_read_properties(line):
 	"""
-	update scores based on the results from one read, and write the results to an output file
+	get properties of read from line of sam file
 	"""
-	# we should always get a result
-	assert len(read_analysis_matches) > 0			
-	
-	
-	# write this read to output
-	for sim_match in read_analysis_matches.keys():
-	
-		for analysis_match in read_analysis_matches[sim_match]:
-			score = analysis_match['score']
-			read_scores[score] += 1
-			output_writer.writerow(analysis_match)
-	
-	return read_scores
-	
+	parts = line.split('\t')
 
-def score_read(read, sim_info, analysis_info):
-	# score read in terms of positive/negate and true/false
-	# simplest scoring is based on whether or not a read was found in the analysis results
-	# and whether or not it should have been found (based on simulation results)
-			
-	
-
-	analysis_matches = {}
-	
-	if read.is_read1 is True:
+	if int(parts[1]) & 64 != 0:
 		read_num = "1"
-	elif read.is_read2 is True:
+	elif int(parts[1]) & 128 != 0:
 		read_num = "2"
 	else:
 		raise ValueError(f"read {read.qname} is neither read1 nor read2, but reads must be paired")
 	
+	return {
+		'qname' : parts[0],	
+		'num' : read_num
+	}
+
+def write_output_summary(outfile, read_scores, args):
+	"""
+	write summary of counts of tp, fp, fn, tn for each type of scoring to file
+	"""
+	header = ['sim_info_file', 'sim_sam_file', 'analysis_info_file', 'results_file', 'junc_type', 'score_type', 
+			  'true_positives', 'true_negatives', 'false_positives', 'false_negatives']
+			  
+	filenames = [args.sim_info, args.sim_sam, args.analysis_info, args.output]
+	types = ['tp', 'tn', 'fp', 'fn']
+			  
+	with open(args.output_summary, "w") as outfile:
+		outfile.write("\t".join(header) + "\n")
+		
+		for score_type in read_scores:
+			for junc_type in read_scores[score_type]:
+				scores = [str(read_scores[score_type][junc_type][type]) for type in types]
+				line = filenames + [junc_type, score_type] + scores
+				outfile.write("\t".join(line) + "\n")
+				
+def print_scores(read_scores): 
+	
+	# recall/sensitvity/true positive rate = (TP)/(TP + FN) - fraction of correct positives
+	recall = (read_scores['tp'])/(read_scores['tp'] + read_scores['fn'])
+	print(f"true positive rate (TPR/recall/sensitivity)\n  fraction of all positives that are true positives: {recall}")
+		
+	# specificity/selectivity/true negative rate = (TN)/(TN + FP) - fraction of correct positives
+	specificity = (read_scores['tn'])/(read_scores['tn'] + read_scores['fp'])
+	print(f"true negative rate (TNR/specificity/selectivity)\n  fraction of all negatives that are true negatives: {specificity}")
+		
+	# balanced accuracy = (TPR + TNR) / 2	
+	print(f"balanced accuracy \n  (TPR + TNR) / 2: {(specificity + recall) / 2}")
+		
+	# accuracy = (TP + TN) / (TP + TN + FP + FN)
+	accuracy =  (read_scores['tn'] + read_scores['tp'] )/ sum([score for type, score in read_scores.items()])
+	print(f"accuracy \n  (TP + TN) / (TP + TN + FP + FN): {accuracy}")	
+	print()						
+
+def get_results(output_writer, read_scores, read_analysis_matches):
+	"""
+	update scores based on the results from one read, and write the results to file
+	"""
+	# we should always get a result
+	assert len(read_analysis_matches) > 0			
+	
+	# write this read to output
+	for sim_match in read_analysis_matches.keys():
+	
+		# get type (discordant or chimeric)
+		junc_type = sim_match.split('_')[2]
+		
+		for analysis_match in read_analysis_matches[sim_match]:
+			# get each score type
+			for score_type in read_scores:
+				score = analysis_match[score_type]
+				read_scores[score_type][junc_type][score] += 1
+				output_writer.writerow(analysis_match)
+
+def score_read(line, sim_info, analysis_info, args):
+	# score read in terms of positive/negate and true/false
+	# simplest scoring is based on whether or not a read was found in the analysis results
+	# and whether or not it should have been found (based on simulation results)
+			
+	read = get_read_properties(line)
+	
+	analysis_matches = {}
+		
 	# find any simulated integrations involving this read
 	# there might be multiple integrations crossed by a read or pair
-	read_sim_matches = look_for_read_in_sim(read.qname, read_num, sim_info)
+	read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
+	
+	# each read can be involved in one or more chimeric junctions, and at most one 
+	# discordant junctions.  if read is not involved in at least one chimeric and one
+	# discordant junction, add empty entries to read_sim_matches
+	if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
+		read_sim_matches['__discord'] = None
+	if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
+		read_sim_matches['__chimeric'] = None
 	
 	#  if read_sim_matches is not empty, it crosses at least one integration
 	# read is either true positive or false negative
-	if len(read_sim_matches) > 0:
-		for int_id, sim_row in read_sim_matches.items():
+	assert len(read_sim_matches) >= 2
+	for int_id, sim_row in read_sim_matches.items():
 
-			# for each integration crossed by a read or pair, it could be in the results more than once
-			# as a pair (for one integration) and as a soft-clipped read (for another integration)
-			analysis_matches[int_id] = look_for_read_in_analysis(read.qname, read_num, int_id, sim_row, analysis_info)
-
-	# if read_sim_matches is empty it doesn't cross any integrations
-	# read is either false positve or true negative
-	else:
-		analysis_matches['no_int'] = look_for_read_in_analysis(read.qname, read_num, '', {}, analysis_info)
-		
+		# for each integration crossed by a read or pair, it could be in the results more than once
+		# as a pair (for one integration) and as a soft-clipped read (for another integration)
+		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
+				
+	# score matches
+	analysis_matches = score_matches(analysis_matches, args)
+	
 	return analysis_matches		
 
+def score_matches(analysis_matches, args):
+	"""
+	for each match between analysis and simulation for a read, decide if
+	the match is a true positive, false positive, true negative or false negative
+	
+	assign several scores:
+	'found_score' is purely based on read IDs - if the read crosses an integration in the 
+	simulation, and if it was found in the analysis results
+	
+	'host_score' takes into account where the integration was in the host: to be a true
+	positive, read must have a 'found_score' of 'tp', and additionally must be on the
+	correct chromosome and within args.host_threshold bases of where it should be.  A
+	read with a 'found_score' of 'tp' that doesn't meet these additional criteria is 'fn'
+	
+	'virus_score' is the same as 'host_score' but for the location in the virus
+	"""
+	
+	for match_type in analysis_matches.values():
+
+		for match in match_type:
+			# if read crosses an integration
+			if match['intID'] is not None:
+				# if integration was found, and should have been found
+				if match['found'] is True:
+					match['found_score'] = 'tp'
+					
+					# check if integration was found in the correct place in the host
+					if match['correct_host_chr'] is True:
+						match['host_score'] = 'tp'
+					else:
+						match['host_score'] = 'fn'
+						
+					# check if integration was found in the correct place in the host
+					if match['correct_virus'] is True:
+						match['virus_score'] = 'tp'
+					else:
+						match['virus_score'] = 'fn'
+					
+				else:
+					match['found_score'] = 'fn'
+					match['host_score'] = 'fn'
+					match['virus_score'] = 'fn'
+			# if read doesn't cross integration
+			else:
+				if match['found'] is True:
+					match['found_score'] = 'fp'
+					match['host_score'] = 'fp'
+					match['virus_score'] = 'fp'
+				else:
+					match['found_score'] = 'tn'
+					match['host_score'] = 'tn'
+					match['virus_score'] = 'tn'
+					
+		
+				
+	return analysis_matches
 
 def look_for_read_in_sim(readID, read_num, sim_info):
 	"""
@@ -188,18 +303,17 @@ def look_for_read_in_sim(readID, read_num, sim_info):
 		
 		# look in chimeric
 		if f"{readID}/{read_num}" in sim_row['left_chimeric'].split(";"):
-			sim_ints[f"{sim_row['id']}_left_chimeric"] = dict(sim_row)
+			sim_ints[f"{sim_row['id']}_left_chimeric"] = sim_row
 		
 		if f"{readID}/{read_num}" in sim_row['right_chimeric'].split(";"):
-			sim_ints[f"{sim_row['id']}_right_chimeric"] = dict(sim_row)
+			sim_ints[f"{sim_row['id']}_right_chimeric"] = sim_row
 			
 		# look in discordant
 		if readID in sim_row['left_discord'].split(";"):
-			sim_ints[f"{sim_row['id']}_left_discord"] = dict(sim_row)
+			sim_ints[f"{sim_row['id']}_left_discord"] = sim_row
 			
 		if readID in sim_row['right_discord'].split(";"):
-			sim_ints[f"{sim_row['id']}_right_discord"] = dict(sim_row)
-	
+			sim_ints[f"{sim_row['id']}_right_discord"] = sim_row
 			
 	return sim_ints
 
@@ -211,16 +325,16 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 	Check whether read is on the same side (left or right) in analysis results and simulated info
 	as well as if type (discordant or chimeric) is the same
 	
-	TODO - for each integration crossed by a read or pair, it could be in the results more than once
-	as a pair (for one integration) and as a soft-clipped read (for another integration)
-	so need to check which integration read is associated with in sim and results when scoring
-	
 	TODO: incorporate info about whether or not it was at the correct location
 	
 	"""
 	# get id side and type from int_descr
-	if int_descr != "":
+	if int_descr is not None:
 		id, side, type = int_descr.split('_')
+		if id == '':
+			id = None
+		if side == '':
+			side = None
 	else:
 		id, side, type = (None, None, None)
 	
@@ -234,7 +348,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 		readID = f"{readID}/{read_num}"
 		
 	# does this read cross an integration?
-	cross_int = (len(sim_row) == 0)
+	cross_int = (sim_row is not None)
 	
 	# dictionary to store matches for this read
 	sim_matches = {'readID' : readID,
@@ -245,7 +359,6 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 					'correct_side' : None,
 					'type'  : type,
 					'correct_type' : None,
-					'score' : '',
 					'correct_host_chr' : None,
 					'host_start_dist' : None, 
 					'host_stop_dist' : None, 
@@ -256,14 +369,15 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 					}
 	matches = []
 	
-	
 	# look through rows of analysis for matches
 	for analysis_row in analysis_info:
 	
 		# check for the correct readID
 		
 		if analysis_row['ReadID'] == readID:
-
+			if side is None:
+				pdb.set_trace()
+			
 			sim_matches['found'] = True
 			sim_matches['n_found'] = 1
 			
@@ -288,29 +402,17 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			#if this read crosses a simulated int, check for matches between sim and analysis properties
 			if cross_int:
 				# check for correct host chromosome, 
-				sim_matches['correct_host_chr'] = (analysis_row['chr'] == sim_row['chr'])
+				sim_matches['correct_host_chr'] = (analysis_row['Chr'] == sim_row['chr'])
 			
 				# check for correct virus
 				sim_matches['correct_virus'] = (analysis_row['VirusRef'] == sim_row['virus'])
-			
-			
-			# score as true positive, true negative, false positive or false negative
-			if cross_int is True:
-				sim_matches['score'] = 'tp'
-			else:
-				sim_matches['score'] = 'fp'
 			
 			# append a copy of sim_matches, so that in the case of multiple matches
 			# we can check for the best one
 			matches.append(dict(sim_matches))
 
-	
 	# if we didn't get any matches
 	if len(matches) == 0:
-		if cross_int is True:
-			sim_matches['score'] = 'fn'
-		else:
-			sim_matches['score'] = 'tn'
 		matches.append(sim_matches)
 		
 	# if we found more than one match, need to update n_found in each
@@ -320,7 +422,6 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			match_dict['n_found'] = len(matches)
 	
 	return matches
-
 
 if __name__ == "__main__":
 	t0 = time.time()
