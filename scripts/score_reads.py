@@ -26,6 +26,7 @@ import argparse
 import csv
 import pysam
 import pdb
+import time
 
 def main(argv):
 	#get arguments
@@ -35,6 +36,7 @@ def main(argv):
 	parser.add_argument('--sim-bam', help='bam file from ART with simulated reads', required=True, type=str)
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
+
 	args = parser.parse_args()
 	
 	results = []
@@ -56,7 +58,7 @@ def main(argv):
 		
 		# create DictWriter object for output
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-										fieldnames = ['readID', 'intID', 'found', 'side', 'type', 'n_found',
+										fieldnames = ['readID', 'intID', 'score', 'found', 'side', 'type', 'n_found',
 										'host_start_dist', 'host_stop_dist', 'virus_start_dist',
 										'virus_stop_dist', 'ambig_diff']
 										)
@@ -91,28 +93,23 @@ def main(argv):
 			# read is either true positive or false negative
 			if len(read_sim_matches) > 0:
 				for int_id, sim_row in read_sim_matches.items():
-			
 					# for each simulated integration, find read in analysis
 					side = int_id.split("_")[1]
 					type = int_id.split("_")[2]
 
-					read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, sim_row['id'], analysis, analysis_reader, side, type)
-			
-				# score read as true positive or false negative
-				if read_analysis_matches[0]['n_found'] > 0:
-					read_scores['tp'] += 1
-				else:
-					read_scores['fn'] += 1
-			
+					read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, sim_row['id'], analysis, analysis_reader, side, type, True)
+
 			# if read_sim_matches is empty it doesn't cross any integrations
 			# read is either false positve or true negative
 			else:
-				read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, '', analysis, analysis_reader,  None, None)
-				# score read ase false positive or true negative
-				if read_analysis_matches[0]['n_found'] > 0:
-					read_scores['fp'] += 1
-				else:
-					read_scores['tn'] += 1
+				read_analysis_matches = look_for_read_in_analysis(read.qname, read_num, '', analysis, analysis_reader,  None, None, False)			
+			
+			# keep count of tp, tn, fp, fn
+			score = read_analysis_matches[0]['score']
+			read_scores[score] += 1			
+			
+			# we should always get a result
+			assert len(read_analysis_matches) > 0
 					
 			for match in read_analysis_matches:
 				output_writer.writerow(match)
@@ -172,7 +169,7 @@ def look_for_read_in_sim(readID, read_num, sim_filehandle, sim_reader):
 			
 	return sim_ints
 
-def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, analysis_reader, side, type):
+def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, analysis_reader, side, type, cross_integration):
 	"""
 	Given a read id from a row in the simulation results, try to find a corresponding row
 	in the analysis results
@@ -180,7 +177,6 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 	Check whether read is on the same side (left or right) in analysis results and simulated info
 	as well as if type (discordant or chimeric) is the same
 	"""
-	
 	# side and type will be None if the read wasn't found in the simulation information
 	# but we're looking for it anyway in the analysis results
 	assert side in ['left', 'right', None]
@@ -192,7 +188,8 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 					'found' : False,
 					'n_found' : 0,
 					'side'  : '',
-					'type'  : ''
+					'type'  : '',
+					'score' : '',
 					}
 	matches = []
 	
@@ -230,6 +227,12 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 				raise ValueError(f'unknown OverlapType in analysis results for read {readID}')
 			sim_matches['type'] = (analysis_type == type)
 			
+			# score as true positive, true negative, false positive or false negative
+			if cross_integration is True:
+				sim_matches['score'] = 'tp'
+			else:
+				sim_matches['score'] = 'fp'
+			
 			# append a copy of sim_matches, so that in the case of multiple matches
 			# we can check for the best one
 			matches.append(dict(sim_matches))
@@ -237,6 +240,10 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 	
 	# if we didn't get any matches
 	if len(matches) == 0:
+		if cross_integration is True:
+			sim_matches['score'] = 'fn'
+		else:
+			sim_matches['score'] = 'tn'
 		matches.append(sim_matches)
 		
 	# if we found more than one match, need to update n_found in each
@@ -249,4 +256,7 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 
 
 if __name__ == "__main__":
+	t0 = time.time()
 	main(argv[1:])
+	t1 = time.time()
+	print(f"total execution time: {t1-t0}s")

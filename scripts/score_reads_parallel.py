@@ -40,7 +40,8 @@ def main(argv):
 	parser.add_argument('--sim-info', help='information from simulation with reads annotated', required = True, type=str)
 	parser.add_argument('--analysis-info', help='information from analysis of simulated reads', required = True, type=str)
 	parser.add_argument('--sim-sam', help='sam file from ART with simulated reads (must not be binary!)', required=True, type=str)
-	parser.add_argument('--host-threshold', help='maximum distance an integration can be from where it should be before a read is scored as incorrect', type=int, default=5)	
+	parser.add_argument('--chimeric-threshold', help='maximum distance a chimeric read integration can be from where it should be before it is scored as incorrect', type=int, default=5)	
+	parser.add_argument('--discordant-threshold', help='maximum distance a discordant read pair integration can be from where it should be before it is scored as incorrect', type=int, default=150)
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 
@@ -104,13 +105,13 @@ def main(argv):
 			read_count += 1
 			
 			# score read
-			res = pool.apply_async(score_read, 
-					args = (line, sim_info, analysis_info, args), 
-					callback = callback_func
-				   )
+			#res = pool.apply_async(score_read, 
+			#		args = (line, sim_info, analysis_info, args), 
+			#		callback = callback_func
+			#	   )
 			
-			#results = score_read(line, sim_info, analysis_info, args)
-			#callback_func(results)
+			results = score_read(line, sim_info, analysis_info, args)
+			callback_func(results)
 		
 		pool.close()
 		pool.join()
@@ -154,7 +155,10 @@ def write_output_summary(outfile, read_scores, args):
 		
 		for score_type in read_scores:
 			for junc_type in read_scores[score_type]:
-				scores = [str(read_scores[score_type][junc_type][type]) for type in types]
+				if junc_type == 'discord':
+					scores = [str(read_scores[score_type][junc_type][type]/2) for type in types]
+				else:
+					scores = [str(read_scores[score_type][junc_type][type]) for type in types]
 				line = filenames + [junc_type, score_type] + scores
 				outfile.write("\t".join(line) + "\n")
 				
@@ -260,7 +264,9 @@ def score_matches(analysis_matches, args):
 					match['found_score'] = 'tp'
 					
 					# check if integration was found in the correct place in the host
-					if match['correct_host_chr'] is True:
+					start_correct = (match['host_start_dist'] >= args.chimeric_threshold)
+					stop_correct = (match['host_stop_dist'] >= args.chimeric_threshold)
+					if match['correct_host_chr'] and start_correct and stop_correct:
 						match['host_score'] = 'tp'
 					else:
 						match['host_score'] = 'fn'
@@ -371,11 +377,8 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 	# look through rows of analysis for matches
 	for analysis_row in analysis_info:
 	
-		# check for the correct readID
-		
+		# check for  readID
 		if analysis_row['ReadID'] == readID:
-			if side is None:
-				pdb.set_trace()
 			
 			sim_matches['found'] = True
 			sim_matches['n_found'] = 1
@@ -402,6 +405,24 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			if cross_int:
 				# check for correct host chromosome, 
 				sim_matches['correct_host_chr'] = (analysis_row['Chr'] == sim_row['chr'])
+			
+				# check distance between sim and analysis integration sites in host
+				if sim_matches['correct_host_chr']:
+					if side == 'left':
+						sim_start = int(sim_row['hPos'])
+						sim_ambig = int(sim_row['juncLengths'].split(',')[0])
+						sim_stop = sim_start + sim_ambig
+					else:
+						sim_left_ambig = int(sim_row['juncLengths'].split(',')[0])
+						sim_right_ambig = int(sim_row['juncLengths'].split(',')[1])
+						sim_start = int(sim_row['hPos']) + sim_left_ambig
+						sim_stop = sim_start + sim_right_ambig						
+						
+					analysis_start = int(analysis_row['IntStart'])
+					analysis_stop = int(analysis_row['IntStop'])
+						
+					sim_matches['host_start_dist'] = abs(sim_start - analysis_start)
+					sim_matches['host_stop_dist'] = abs(sim_stop - analysis_stop)	
 			
 				# check for correct virus
 				sim_matches['correct_virus'] = (analysis_row['VirusRef'] == sim_row['virus'])
