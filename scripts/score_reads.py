@@ -105,13 +105,13 @@ def main(argv):
 			read_count += 1
 			
 			# score read
-			#res = pool.apply_async(score_read, 
-			#		args = (line, sim_info, analysis_info, args), 
-			#		callback = callback_func
-			#	   )
+			res = pool.apply_async(score_read, 
+					args = (line, sim_info, analysis_info, args), 
+					callback = callback_func
+				   )
 			
-			results = score_read(line, sim_info, analysis_info, args)
-			callback_func(results)
+			#results = score_read(line, sim_info, analysis_info, args)
+			#callback_func(results)
 		
 		pool.close()
 		pool.join()
