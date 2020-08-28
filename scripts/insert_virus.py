@@ -260,7 +260,7 @@ class Events(dict):
 			self.ints._Integrations__save_fasta(file, append = False)
 		
 		if 'epis' in vars(self):
-			assert len(self.epis) => 0
+			assert len(self.epis) >= 0
 			self.epis._Episomes__save_fasta(file, append = True)
 			
 		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
