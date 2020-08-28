@@ -28,7 +28,6 @@
 from sys import argv
 import argparse
 import csv
-import pysam
 import pdb
 import pprint
 import multiprocessing as mp
@@ -105,15 +104,13 @@ def main(argv):
 			read_count += 1
 			
 			# score read
-			#results = score_read(read, sim_info, analysis_info, args)
 			res = pool.apply_async(score_read, 
-									args = (line, sim_info, analysis_info, args), 
-									callback = callback_func
-								   )
-			#read_analysis_matches = res.get()
+					args = (line, sim_info, analysis_info, args), 
+					callback = callback_func
+				   )
 			
-			# get results
-			#callback_func(read_analysis_matches)
+			#results = score_read(line, sim_info, analysis_info, args)
+			#callback_func(results)
 		
 		pool.close()
 		pool.join()
@@ -187,6 +184,7 @@ def get_results(output_writer, read_scores, read_analysis_matches):
 	assert len(read_analysis_matches) > 0			
 	
 	# write this read to output
+
 	for sim_match in read_analysis_matches.keys():
 	
 		# get type (discordant or chimeric)
@@ -197,7 +195,8 @@ def get_results(output_writer, read_scores, read_analysis_matches):
 			for score_type in read_scores:
 				score = analysis_match[score_type]
 				read_scores[score_type][junc_type][score] += 1
-				output_writer.writerow(analysis_match)
+			# write row
+			output_writer.writerow(analysis_match)
 
 def score_read(line, sim_info, analysis_info, args):
 	# score read in terms of positive/negate and true/false
