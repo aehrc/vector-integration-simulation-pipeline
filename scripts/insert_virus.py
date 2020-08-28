@@ -42,7 +42,7 @@ import pprint
 import time
 
 ###
-max_attempts = 100 #maximum number of times to try to place an integration site 
+max_attempts = 200 #maximum number of times to try to place an integration site 
 
 default_ints = 5
 default_epi = 0
@@ -260,7 +260,7 @@ class Events(dict):
 			self.ints._Integrations__save_fasta(file, append = False)
 		
 		if 'epis' in vars(self):
-			assert len(self.epis) > 0
+			assert len(self.epis) => 0
 			self.epis._Episomes__save_fasta(file, append = True)
 			
 		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
