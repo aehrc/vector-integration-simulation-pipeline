@@ -26,6 +26,7 @@
 # but also if it is found for the correct integration in both results
 
 from sys import argv
+from os import cpu_count
 import argparse
 import csv
 import pdb
@@ -33,6 +34,7 @@ import pprint
 import multiprocessing as mp
 import functools
 import time
+
 
 def main(argv):
 	#get arguments
@@ -44,7 +46,8 @@ def main(argv):
 	parser.add_argument('--discordant-threshold', help='maximum distance a discordant read pair integration can be from where it should be before it is scored as incorrect', type=int, default=150)
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
-
+	parser.add_argument('--threads', help='number of threads to use', required=False, type=int)
+	
 	args = parser.parse_args()
 	
 	results = []
@@ -88,7 +91,9 @@ def main(argv):
 		read_count = 0
 		
 		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
-		pool = mp.Pool()
+		if args.threads is None:
+			args.threads = cpu_count()
+		pool = mp.Pool(processes = args.threads)
 		
 		# callback function for pool can only take one argument, so use functools.Partial
 		# to provide read_scores and outfile handle
