@@ -25,6 +25,7 @@ from sys import argv
 import argparse
 import csv
 import pysam
+import time
 import pdb
 
 def main(argv):
@@ -249,4 +250,6 @@ def look_for_read_in_analysis(readID, read_num, int_id, analysis_filehandle, ana
 
 
 if __name__ == "__main__":
+	t0 = time.time()
 	main(argv[1:])
+	t1 = time.time()
