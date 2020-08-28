@@ -108,12 +108,11 @@ def find_multiple_discordant(buffer):
 	for i, row in enumerate(buffer):
 		# check reads found around left side
 		for read in row['left_discord'].split(';'):
+			if read == '':
+				continue
 			if read in seen.keys():
-				# find out how many times we've already seen this read ID
-				n = times_already_found(read, multiples)
-				
 				# if this is the first double, add the entry from seen
-				if n == 0:
+				if read not in multiples:
 					multiples[read] = []
 					multiples[read].append(seen[read])
 				
@@ -124,12 +123,11 @@ def find_multiple_discordant(buffer):
 				seen[read] = {'int_id' : row['id'], 'side' : 'left', 'buffer_row' : i}
 		# check right side
 		for read in row['right_discord'].split(';'):
+			if read == '':
+				continue
 			if read in seen.keys():
-				# find out how many times we've already seen this read ID
-				n = times_already_found(read, multiples)
-				
 				# if this is the first double, add the entry from seen
-				if n == 0:
+				if read not in multiples:
 					multiples[read] = []
 					multiples[read].append(seen[read])
 				
@@ -143,6 +141,7 @@ def find_multiple_discordant(buffer):
 		row['fake_discord'] = []
 			
 	# deal with reads crossing multiple integrations
+	print(multiples)
 	for read in multiples:
 	
 		# if the side of the first junction matches the side of the last junction
@@ -179,7 +178,7 @@ def times_already_found(read, multiples):
 	check how many times a read has already been found when checking for discordant about multiple integration sides
 	"""	
 	if read in multiples:
-		return max(multiples[read].keys())
+		return len(multiples[read])
 	else:
 		return 0
 	
