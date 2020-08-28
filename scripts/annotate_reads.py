@@ -31,7 +31,8 @@ def main(argv):
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--sim-info', help='information from simulation', required = True, type=str)
 	parser.add_argument('--sim-sam', help='sam file from read simulation', required = True, type=str)
-	parser.add_argument('--soft-threshold', help='threshold for amount of read that must be mapped when finding integrations in soft-clipped reads', type=int, default=20)
+	parser.add_argument('--soft-threshold', help='threshold for number of bases that must be mapped when finding integrations in soft-clipped reads', type=int, default=20)
+	parser.add_argument('--discordant-threshold', help='threshold for number of bases that may be unmapped when finding integrations in discordant read pairs', type=int, default=20)
 	parser.add_argument('--mean-frag-len', help='mean framgement length used when simulating reads', type=int, default=500)
 	parser.add_argument('--sd-frag-len', help='standard devation of framgement length used when simulating reads', type=int, default=30)
 	parser.add_argument('--window-frac', help='fraction of the distribution of fragment sizes to use when searching for discordant read pairs', type=float, default=0.99)
@@ -143,7 +144,6 @@ def find_multiple_discordant(buffer):
 				seen[read] = {'int_id' : row['id'], 'side' : 'right', 'buffer_row' : i}
 		
 		
-		print(multiples)
 		# add extra keys to dicts 
 		row['multiple_discord'] = []
 		row['fake_discord'] = []
@@ -218,8 +218,8 @@ def find_reads_crossing_ints(buffer, samfile, args, window_width):
 		row['right_chimeric'] = ";".join(right_chimeric)
 	
 		# find discordant read pairs	
-		left_discord = get_discordant(chr, left_start, left_stop, samfile, args.soft_threshold, window_width, buffer)
-		right_discord = get_discordant(chr, right_start, right_stop, samfile, args.soft_threshold, window_width, buffer)
+		left_discord = get_discordant(chr, left_start, left_stop, samfile, args.discordant_threshold, window_width, buffer)
+		right_discord = get_discordant(chr, right_start, right_stop, samfile, args.discordant_threshold, window_width, buffer)
 	
 		# if a read is both chimeric and discordant, chimeric takes priority 
 		# (but it shouldn't be both if the clipping threshold is the same for both read types)
@@ -276,13 +276,23 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width, buffer):
 	"""
 	Get any discordant read pairs which cross an integration site
 	In other words, get pairs where one mate is mapped on the host side, and the other on the virus side
+	A read is considered mapped if it has at most threshold (default 20) unmapped bases
 	
-	This includes any pairs where the integration site falls within threshold bases of the end
-	of the read, on the side of the read that is closest to the mate
+	This includes any pairs where the integration site falls within threshold (default 20) bases 
+	of the end of the read (for a read mapped on the left of the integration), 
+	or within threshold bases of the start of the read for a read on the mapped on the right
+	of the integration
 	
 	Avoid an exhaustive search by extracting only the reads in a window around the integration site
 	Set this window based on the mean length and standard deviation of fragment size used in simulation
-	and the fraction of the fragment length distribution we want to cover.
+	and the fraction of the fragment length distribution we want to cover.  Find discordant
+	pairs by finding pairs for which an integration (start, stop) falls between the 20th
+	base from the end of the left read and the 20th base of the right read
+	
+	Current criteria in discordant.pl is that a pair must have one read mapped and the other
+	unmapped to be considered a discordant read pair.  To be considered 'mapped', a read must
+	have 20 or fewer unmapped bases.  To be considered 'unmapped', a read must have
+	less than 20 unmapped bases
 	
 	Note that a read pair might have one integration fall between read1 and read2, but read1 or read2
 	might also cross a second integration.  This pair is therefore both discordant about one integration, and
@@ -311,7 +321,7 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width, buffer):
 	
 	
 	for read1, read2 in read_pair_generator(samfile, f"{chr}:{window_start}-{window_stop}"):
-	
+			
 		# check mate is mapped
 		if read1.is_unmapped or read2.is_unmapped:
 			continue
@@ -321,7 +331,7 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width, buffer):
 		# if this read is forward, mate must be reverse and vice versa
 		if (read1.is_reverse == read2.is_reverse):
 			continue
-		
+
 		# if the integration site falls between left_boundary and right_boundary
 		# (which are coordinates within the reference)
 		# this pair crosses the integration site
@@ -486,8 +496,13 @@ def window_size(mean_frag_len, sd_frag_len, window_frac):
 	
 def get_boundary(read, threshold, side = "left"):
 	"""
-	get first position in reference that is at least threshold bases from the end of the read
-	and isn't None
+	get first position in reference that is at least threshold bases from the 
+	start or end of the read and isn't None
+	
+	if side is 'left', return the 0-based position after threshold mapped bases from the 
+	start of the read
+	if side is 'right', return the 0-based position before threshold mapped bases from the
+	end of the read
 	"""
 	assert isinstance(threshold, int)
 	assert threshold >= 0
@@ -496,9 +511,13 @@ def get_boundary(read, threshold, side = "left"):
 		
 	aligned_pairs = read.get_aligned_pairs()
 	
-	# if we want to look on the right hand side, we need to look backwards through the aligned pairs
-	if side == "right":
+	if side == "left":
+		# if we want to look on the right hand side, we need to look backwards 
+		# through the aligned pairs
 		aligned_pairs = list(reversed(aligned_pairs))
+		# python numbering is zero-based and half-open
+		threshold -= 1 
+
 	
 	# iterate over bases in aligned_pairs, starting from the threshold value
 	for pair in aligned_pairs[threshold:]:
@@ -509,7 +528,14 @@ def get_boundary(read, threshold, side = "left"):
 def within(start1, stop1, start2, stop2):
 	"""
 	compare two intervals, each with a start and stop value
-	return true if the first interval is completely encompassed by the second
+	return true if the first interval is completely within in the second
+	
+	use half-open intervals, so [8, 8) is not within [5, 8) 
+	within(8, 8, 5, 8) => False
+	within(6, 6, 5, 8) => True
+	within(5, 8, 5, 8) => True
+	within(4, 6, 5, 8) => False
+	within(5, 9, 5, 8) => False
 	"""	
 	assert start1 <= stop1
 	assert start2 <= stop2
@@ -518,15 +544,17 @@ def within(start1, stop1, start2, stop2):
 	assert isinstance(stop1, int)
 	assert isinstance(stop2, int)
 	
-	if start1 >= start2 and stop1 <= stop2:
-		return True
-	else:
-		return False
+	if start1 >= start2 and start1 < stop2:
+		if stop1 - 1 >= start2 and stop1 - 1 < stop2:
+			return True
+	return False
 		
 def intersects(start1, stop1, start2, stop2):
 	"""
 	compare two intervals, each with a start and stop value
 	return true if the first interval is intersects the second
+	
+	use half-open intervals, so [2, 3) and [3, 4) don't intersect
 	"""	
 	assert start1 <= stop1
 	assert start2 <= stop2
@@ -536,10 +564,10 @@ def intersects(start1, stop1, start2, stop2):
 	assert isinstance(stop2, int)
 	
 	# if first interval is completely to the left of the second interval
-	if stop1 < start2:
+	if stop1 <= start2:
 		return False
 	# if first interval is completely to the right of the second interval
-	if start1 > stop2:
+	if start1 >= stop2:
 		return False
 		
 	# otherwise, they intersect
