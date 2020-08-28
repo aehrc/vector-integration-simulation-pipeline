@@ -2,3 +2,4 @@
 slurm*
 snakemake_rules/__pycache__
 snakemake_rules/__pycache__/*
+test_scoring_data
