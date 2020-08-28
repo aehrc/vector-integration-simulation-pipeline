@@ -147,7 +147,6 @@ def find_multiple_discordant(buffer):
 		row['fake_discord'] = []
 			
 	# deal with reads crossing multiple integrations
-	print(multiples)
 	for read in multiples:
 	
 		# if the side of the first junction matches the side of the last junction
@@ -206,8 +205,6 @@ def find_reads_crossing_ints(buffer, samfile, args, window_width):
 		right_stop = int(row['rightStop'])
 	
 		assert left_start >= 0 and right_start >= 0
-	
-		print(f"finding reads for integration {row['id']}")
 
 		# find chimeric reads
 		left_chimeric = get_chimeric(chr, left_start, left_stop, samfile, args.soft_threshold, buffer)
