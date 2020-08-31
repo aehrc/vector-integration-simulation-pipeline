@@ -25,6 +25,11 @@
 # however, might also wish to consider not only if read is found in the simulation and analysis results
 # but also if it is found for the correct integration in both results
 
+# to speed things up, process individual reads in parallel and use callback function to collate
+# and write results to file
+# to minimise IO limitations, keep results in a buffer until there are a number of them to be processed
+# all at once
+
 from sys import argv
 from os import cpu_count
 import argparse
@@ -37,6 +42,12 @@ import time
 
 
 n_print = 10000
+
+
+# buffer of lines to print to outfile
+buffer = []
+# number of lines to keep in buffer before printing
+n_buffer = 1000
 
 def main(argv):
 	#get arguments
@@ -94,7 +105,7 @@ def main(argv):
 		if read_count % n_print == 0:
 			print(f"processed {read_count} reads")
 		
-		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
+		# create pool of worker processes
 		if args.threads is None:
 			args.threads = cpu_count()
 		pool = mp.Pool(processes = args.threads)
@@ -103,6 +114,7 @@ def main(argv):
 		# to provide read_scores and outfile handle
 		callback_func = functools.partial(get_results, output_writer, read_scores)
 		
+		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
 		for line in samfile:
 		
 			# skip header lines
@@ -124,6 +136,10 @@ def main(argv):
 		
 		pool.close()
 		pool.join()
+		
+		# write any results remaining in the buffer
+		write_buffer(read_scores, output_writer)
+		
 	#print(f"\nscored {read_count} reads, which were scored: ")
 	pp = pprint.PrettyPrinter(indent = 2)
 	pp.pprint(read_scores)
@@ -195,21 +211,35 @@ def get_results(output_writer, read_scores, read_analysis_matches):
 	"""
 	# we should always get a result
 	assert len(read_analysis_matches) > 0			
-	
-	# write this read to output
 
-	for sim_match in read_analysis_matches.keys():
-	
-		# get type (discordant or chimeric)
-		junc_type = sim_match.split('_')[2]
+	# check how many lines are already in the buffer
+	if len(buffer) < n_buffer:
+		buffer.append(read_analysis_matches)
+	else:
+		write_buffer(read_scores, output_writer)
 		
-		for analysis_match in read_analysis_matches[sim_match]:
-			# get each score type
-			for score_type in read_scores:
-				score = analysis_match[score_type]
-				read_scores[score_type][junc_type][score] += 1
-			# write row
-			output_writer.writerow(analysis_match)
+
+def write_buffer(read_scores, output_writer):
+	"""
+	keep a buffer of results for each line in samfile - this function collates them
+	and writes them to disk, then clears the buffer
+	"""
+	
+	for result in buffer:
+	# write this read to output
+		for sim_match in result.keys():
+
+			# get type (discordant or chimeric)
+			junc_type = sim_match.split('_')[2]
+
+			for analysis_match in result[sim_match]:
+				# get each score type
+				for score_type in read_scores:
+					score = analysis_match[score_type]
+					read_scores[score_type][junc_type][score] += 1
+				# write row
+				output_writer.writerow(analysis_match)
+	buffer.clear()
 
 def score_read(line, sim_info, analysis_info, args):
 	# score read in terms of positive/negate and true/false
