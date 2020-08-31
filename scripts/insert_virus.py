@@ -145,7 +145,7 @@ class Events(dict):
 	
 		# read host fasta - use index which doesn't load sequences into memory because host is large genome
 		if self.checkFastaExists(host_fasta_path, fasta_extensions):
-			self.host = SeqIO.index(host_fasta_path, 'fasta', alphabet=unambiguous_dna)
+			self.host = SeqIO.to_dict(SeqIO.parse(host_fasta_path, 'fasta', alphabet=unambiguous_dna))
 		else:
 			raise OSError("Could not open host fasta")
 		
@@ -760,9 +760,8 @@ class Integrations(list):
 						host_bases = str(self.host[chr][seg['coords'][0]:seg['coords'][1]].seq).lower()
 						seg_bases = seg['bases'].lower()
 						assert host_bases == seg_bases
-			assert n_ints == len(self)
+		assert n_ints == len(self)
 		t1 = time.time()
-		print(f"model has length {len(self.model)}")
 		print(f"checked model validity in {t1-t0}s")	
 	
 	def __save_fasta(self, filename, append = False):
@@ -1200,6 +1199,8 @@ class Integration(dict):
 		assert len(self.junc_props['junc_bases'][1]) == self.junc_props['n_junc'][1]
 		assert all([len(i) == 2 for i in self.chunk.pieces])
 		assert len(self.chunk.pieces) == len(self.chunk.oris)
+		assert all([piece[1] > piece[0] for piece in self.chunk.pieces])
+
 		
 	def n_overlap_bases(self):
 		"""
@@ -1398,10 +1399,6 @@ class Integration(dict):
 		to_delete = []
 		i = 0
 		while deleted_bases < n:
-			# if we're left with a piece of length 0, flag this piece for deletion
-			if self.chunk.pieces[i][0] == self.chunk.pieces[i][1]:
-				to_delete.append(i)
-				i += 1
 			# if this piece is a forward piece
 			if self.chunk.oris[i] == '+':
 				# detele one base
@@ -1416,8 +1413,12 @@ class Integration(dict):
 				print(f"unrecgonised orientation {self.chunk.oris[i]} in chunk {vars(self.chunk)}")
 				self.pos = None
 				return
+			# if we're left with a piece of length 0, flag this piece for deletion
+			if self.chunk.pieces[i][0] == self.chunk.pieces[i][1]:
+				to_delete.append(i)
+				i += 1
 				
-		# remove chunks that we want to dele
+		# remove chunks that we want to delete
 		self.chunk.pieces = [self.chunk.pieces[i] for i in range(len(self.chunk.pieces)) if (i not in to_delete)]
 		self.chunk.oris = [self.chunk.oris[i] for i in range(len(self.chunk.oris)) if (i not in to_delete)]
 		
@@ -1450,10 +1451,6 @@ class Integration(dict):
 		i = len(self.chunk.pieces) - 1 # start at the last piece in the chunk
 		while deleted_bases < n:
 			assert i >= 0
-			# if we're left with a piece of length 0, flag this piece for deletion
-			if self.chunk.pieces[i][0] == self.chunk.pieces[i][1]:
-				to_delete.append(i)
-				i -= 1
 			# if this piece is a forward piece
 			if self.chunk.oris[i] == "+":
 				# delete one base
@@ -1466,7 +1463,11 @@ class Integration(dict):
 			else:
 				print(f"unrecgonised orientation {self.chunk.oris[i]} in chunk {vars(self.chunk)} ")
 				self.pos = None
-				return
+				return		
+			# if we're left with a piece of length 0, flag this piece for deletion			
+			if self.chunk.pieces[i][0] == self.chunk.pieces[i][1]:
+				to_delete.append(i)
+				i -= 1
 				 
 		# remove chunks that we want to delete
 		self.chunk.pieces = [self.chunk.pieces[i] for i in range(len(self.chunk.pieces)) if (i not in to_delete)]
