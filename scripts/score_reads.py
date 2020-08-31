@@ -41,13 +41,6 @@ import time
 
 n_print = 10000
 
-
-# buffer of lines to print to outfile
-line_buffer = []
-result_buffer = []
-# number of lines to keep in buffer before printing
-n_buffer = 1000
-
 def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
@@ -62,106 +55,114 @@ def main(argv):
 	
 	args = parser.parse_args()
 	
-	results = []
-	
 	# read simulated and pipeline information into memory
 	print(f"opening simulated information: {args.sim_info}")
-	with open(args.sim_info, newline = '') as sim:
-		
-		# create DictReader objects for inputs and read into memory
-		sim_reader = csv.DictReader(sim, delimiter = '\t')
-		sim_info = []
-		for row in sim_reader:
-			sim_info.append(row)
-	
+	sim_info = read_csv(args.sim_info)
+
 	print(f"opening analysis information: {args.analysis_info}")
-	with open(args.analysis_info, newline='') as analysis:
-		analysis_reader = csv.DictReader(analysis, delimiter = '\t')
-		analysis_info = []
-		for row in analysis_reader:
-			analysis_info.append(row)
-		
+	analysis_info = read_csv(args.analysis_info)
+	
 	print(f"opening sam file: {args.sim_sam}")
 	with open(args.output, "w", newline = '') as outfile, open(args.sim_sam) as samfile:
-		
-		
-		# create DictWriter object for output
+
+		# keep count of true and false positives and negatives
+		read_scores = {'tp':0, 'tn':0, 'fp':0, 'fn':0}
 		score_types = ['found_score', 'host_score', 'virus_score']
+		read_scores = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
+	
+		# create DictWriter object for output
 		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
 					'host_start_dist', 'host_stop_dist', 'correct_virus', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
 										fieldnames = header)
-		
 		output_writer.writeheader()
+	
+		# create queues and lock
+		line_queue = mp.Queue()
+		result_queue = mp.Queue()
+		lock = mp.Lock()
 		
-		# keep count of true and false positives and negatives
-		read_scores = {'tp':0, 'tn':0, 'fp':0, 'fn':0}
-		read_scores  = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
-		
-		read_count = 0
-		if read_count % n_print == 0:
-			print(f"processed {read_count} reads")
-		
-		# create pool of worker processes if we're using more than one thread
+		# create pool of workers
 		if args.threads is None:
 			args.threads = cpu_count()
-		if args.threads > 1:
-			pool = mp.Pool(processes = args.threads)
-		
-		# callback function for pool can only take one argument, so use functools.Partial
-		# to provide read_scores and outfile handle
-		callback_func = functools.partial(get_results, output_writer, read_scores)
-		
-		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
-		for line in samfile:
-		
-			# skip header lines
-			if line[0] == '@':
-				continue
+		workers = args.threads - 1
+		if workers < 1:
+			workers = 1
 			
-			# append line to buffer
-			read_count += 1
-			line_buffer.append(line)
-			
-			# if the buffer is full
-			if len(line_buffer) > n_buffer:
-				
-				# score reads in buffer
-				if args.threads > 1:
-					res = pool.apply_async(score_read, 
-						args = (line_buffer, sim_info, analysis_info, args), 
-						callback = callback_func
-					   )
-				else:
-					results = score_read(line_buffer, sim_info, analysis_info, args)
-					callback_func(results)
-				
-				# clear buffer
-				line_buffer.clear()
-				
+		# create output process
+		print(f"using {workers} workers")
+		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
+		output_p.start()
 		
-		# score last buffer
-		if args.threads > 1:
-			res = pool.apply_async(score_read, 
-				args = (line_buffer, sim_info, analysis_info, args), 
-				callback = callback_func
-				)
-			pool.close()
-			pool.join()
-		else:
-			results = score_read(line_buffer, sim_info, analysis_info, args)
-			callback_func(results)
+		workers = [mp.Process(target = process_lines, 
+					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
+					for i in range(workers)]
+		[worker.start() for worker in workers]
 		
+		# iterate over lines in samfile		
+		[line_queue.put(line) for line in samfile]
 		
-	#print(f"\nscored {read_count} reads, which were scored: ")
-	pp = pprint.PrettyPrinter(indent = 2)
-	pp.pprint(read_scores)
+		# let the worker processes know that there's no more lines
+		[line_queue.put(None) for i in range(args.threads)]		
+		
+		[worker.join() for worker in workers]	
+		
+		output_p.join()
+
+		# for processing serially
+# 		for line in samfile:
+# 			if line[0] == '@':
+# 				continue
+# 			result = score_read(line, sim_info, analysis_info, args)
+# 			update_scores(read_scores, result)
+# 			for sim_match in result.keys():
+# 				for analysis_match in result[sim_match]:
+# 					output_writer.writerow(analysis_match)
 	
-	write_output_summary(outfile, read_scores, args)
+	#print(f"\nscored {read_count} reads, which were scored: ")
+	#pp = pprint.PrettyPrinter(indent = 2)
+	#pp.pprint(read_scores)
+
+	#write_output_summary(outfile, read_scores, args)
 	print(f"saved results to {args.output}")
 
+def process_lines(line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores):
+	"""
+	get samfile lines from queue, and write results to file
+	"""
+	
+	while True:
+		line = line_queue.get()
+		
+		# if we're done, stop
+		if line is None:
+			result_queue.put(None)
+			break
+		# skip header lines
+		elif line[0] == '@':
+			continue
+		# process this line
+		else:
+			result = score_read(line, sim_info, analysis_info, args)
+			result_queue.put(result)
+
+def read_csv(filename):
+	"""
+	read the contents of a csv into memory, and return a list of dicts
+	where each dict corresponds to a line from the file
+	"""
+	with open(filename, newline = '') as filehandle:
+		
+		# create DictReader objects for inputs and read into memory
+		reader = csv.DictReader(filehandle, delimiter = '\t')
+		data = []
+		for row in reader:
+			data.append(row)
+			
+	return data
+	
 def get_read_properties(line):
 	"""
 	get properties of read from line of sam file
@@ -220,66 +221,83 @@ def print_scores(read_scores):
 	print(f"accuracy \n  (TP + TN) / (TP + TN + FP + FN): {accuracy}")	
 	print()						
 
-def get_results(output_writer, read_scores, result_buffer):
+def write_results(output_writer, result_queue, read_scores, n_workers, args):
+	"""
+	write results from one read to file, and aggregate to read_scores
+	"""
+	# check that there are some results for this read
+	
+	none_count = 0
+	while True:
+		result = result_queue.get()
+		if result is None:
+			none_count += 1
+			if none_count == n_workers:
+				pp = pprint.PrettyPrinter(indent = 2)
+				pp.pprint(read_scores)
+				write_output_summary(output_writer, read_scores, args)
+				break
+		else:
+			update_scores(read_scores, result)
+			for sim_match in result.keys():
+				for analysis_match in result[sim_match]:
+					output_writer.writerow(analysis_match)
+					
+	return read_scores
+
+def update_scores(read_scores, result):
 	"""
 	update scores based on the results from one read, and write the results to file
 	"""
-	# check that there are some results
-	assert len(result_buffer) > 0			
 
-	for result in result_buffer:
-		# check that there are some results for this read
-		assert len(result) > 0
-		# write this read to output
-		for sim_match in result.keys():
+	# check that there are some results for this read
+	assert len(result) > 0
+	# write this read to output
+	for sim_match in result.keys():
 
-			# get type (discordant or chimeric)
-			junc_type = sim_match.split('_')[2]
+		# get type (discordant or chimeric)
+		junc_type = sim_match.split('_')[2]
 
-			for analysis_match in result[sim_match]:
-				# get each score type
-				for score_type in read_scores:
-					score = analysis_match[score_type]
-					read_scores[score_type][junc_type][score] += 1
-				# write row
-				output_writer.writerow(analysis_match)
-	result_buffer.clear()
+		for analysis_match in result[sim_match]:
+			
+			# get each score type
+			for score_type in read_scores:
+				score = analysis_match[score_type]
+				read_scores[score_type][junc_type][score] += 1			
 		
-def score_read(line_buffer, sim_info, analysis_info, args):
+def score_read(line, sim_info, analysis_info, args):
 	# score read in terms of positive/negate and true/false
 	# simplest scoring is based on whether or not a read was found in the analysis results
 	# and whether or not it should have been found (based on simulation results)
-
-	for line in line_buffer:
-		read = get_read_properties(line)
 	
-		analysis_matches = {}
+	read = get_read_properties(line)
+
+	analysis_matches = {}
+
+	# find any simulated integrations involving this read
+	# there might be multiple integrations crossed by a read or pair
+	read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
+
+	# each read can be involved in one or more chimeric junctions, and at most one 
+	# discordant junctions.  if read is not involved in at least one chimeric and one
+	# discordant junction, add empty entries to read_sim_matches
+	if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
+		read_sim_matches['__discord'] = None
+	if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
+		read_sim_matches['__chimeric'] = None
+
+	#  if read_sim_matches is not empty, it crosses at least one integration
+	# read is either true positive or false negative
+	assert len(read_sim_matches) >= 2
+	for int_id, sim_row in read_sim_matches.items():
+
+		# for each integration crossed by a read or pair, it could be in the results more than once
+		# as a pair (for one integration) and as a soft-clipped read (for another integration)
+		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
 		
-		# find any simulated integrations involving this read
-		# there might be multiple integrations crossed by a read or pair
-		read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
+	score_matches(analysis_matches, args)
 	
-		# each read can be involved in one or more chimeric junctions, and at most one 
-		# discordant junctions.  if read is not involved in at least one chimeric and one
-		# discordant junction, add empty entries to read_sim_matches
-		if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
-			read_sim_matches['__discord'] = None
-		if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
-			read_sim_matches['__chimeric'] = None
-	
-		#  if read_sim_matches is not empty, it crosses at least one integration
-		# read is either true positive or false negative
-		assert len(read_sim_matches) >= 2
-		for int_id, sim_row in read_sim_matches.items():
-
-			# for each integration crossed by a read or pair, it could be in the results more than once
-			# as a pair (for one integration) and as a soft-clipped read (for another integration)
-			analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
-				
-		# score matches
-		result_buffer.append(score_matches(analysis_matches, args))
-	
-	return result_buffer	
+	return analysis_matches
 
 def score_matches(analysis_matches, args):
 	"""
@@ -335,8 +353,6 @@ def score_matches(analysis_matches, args):
 					match['found_score'] = 'tn'
 					match['host_score'] = 'tn'
 					match['virus_score'] = 'tn'
-					
-		
 				
 	return analysis_matches
 
