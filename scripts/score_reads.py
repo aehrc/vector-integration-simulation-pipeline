@@ -36,6 +36,8 @@ import functools
 import time
 
 
+n_print = 10000
+
 def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
@@ -89,6 +91,8 @@ def main(argv):
 		read_scores  = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
 		
 		read_count = 0
+		if read_count % n_print == 0:
+			print(f"processed {read_count} reads")
 		
 		# iterate over reads in samfile and check for corresponding lines in simulation and analysis files
 		if args.threads is None:
