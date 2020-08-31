@@ -25,10 +25,8 @@
 # however, might also wish to consider not only if read is found in the simulation and analysis results
 # but also if it is found for the correct integration in both results
 
-# to speed things up, process individual reads in parallel and use callback function to collate
+# to speed things up, process a buffer of reads in parallel and use callback function to collate
 # and write results to file
-# to minimise IO limitations, keep results in a buffer until there are a number of them to be processed
-# all at once
 
 from sys import argv
 from os import cpu_count
@@ -45,7 +43,8 @@ n_print = 10000
 
 
 # buffer of lines to print to outfile
-buffer = []
+line_buffer = []
+result_buffer = []
 # number of lines to keep in buffer before printing
 n_buffer = 1000
 
@@ -105,10 +104,11 @@ def main(argv):
 		if read_count % n_print == 0:
 			print(f"processed {read_count} reads")
 		
-		# create pool of worker processes
+		# create pool of worker processes if we're using more than one thread
 		if args.threads is None:
 			args.threads = cpu_count()
-		pool = mp.Pool(processes = args.threads)
+		if args.threads > 1:
+			pool = mp.Pool(processes = args.threads)
 		
 		# callback function for pool can only take one argument, so use functools.Partial
 		# to provide read_scores and outfile handle
@@ -120,25 +120,40 @@ def main(argv):
 			# skip header lines
 			if line[0] == '@':
 				continue
-			else:
-				read = get_read_properties(line)
 			
+			# append line to buffer
 			read_count += 1
+			line_buffer.append(line)
 			
-			# score read
+			# if the buffer is full
+			if len(line_buffer) > n_buffer:
+				
+				# score reads in buffer
+				if args.threads > 1:
+					res = pool.apply_async(score_read, 
+						args = (line_buffer, sim_info, analysis_info, args), 
+						callback = callback_func
+					   )
+				else:
+					results = score_read(line_buffer, sim_info, analysis_info, args)
+					callback_func(results)
+				
+				# clear buffer
+				line_buffer.clear()
+				
+		
+		# score last buffer
+		if args.threads > 1:
 			res = pool.apply_async(score_read, 
-					args = (line, sim_info, analysis_info, args), 
-					callback = callback_func
-				   )
-			
-			#results = score_read(line, sim_info, analysis_info, args)
-			#callback_func(results)
+				args = (line_buffer, sim_info, analysis_info, args), 
+				callback = callback_func
+				)
+			pool.close()
+			pool.join()
+		else:
+			results = score_read(line_buffer, sim_info, analysis_info, args)
+			callback_func(results)
 		
-		pool.close()
-		pool.join()
-		
-		# write any results remaining in the buffer
-		write_buffer(read_scores, output_writer)
 		
 	#print(f"\nscored {read_count} reads, which were scored: ")
 	pp = pprint.PrettyPrinter(indent = 2)
@@ -205,28 +220,17 @@ def print_scores(read_scores):
 	print(f"accuracy \n  (TP + TN) / (TP + TN + FP + FN): {accuracy}")	
 	print()						
 
-def get_results(output_writer, read_scores, read_analysis_matches):
+def get_results(output_writer, read_scores, result_buffer):
 	"""
 	update scores based on the results from one read, and write the results to file
 	"""
-	# we should always get a result
-	assert len(read_analysis_matches) > 0			
+	# check that there are some results
+	assert len(result_buffer) > 0			
 
-	# check how many lines are already in the buffer
-	if len(buffer) < n_buffer:
-		buffer.append(read_analysis_matches)
-	else:
-		write_buffer(read_scores, output_writer)
-		
-
-def write_buffer(read_scores, output_writer):
-	"""
-	keep a buffer of results for each line in samfile - this function collates them
-	and writes them to disk, then clears the buffer
-	"""
-	
-	for result in buffer:
-	# write this read to output
+	for result in result_buffer:
+		# check that there are some results for this read
+		assert len(result) > 0
+		# write this read to output
 		for sim_match in result.keys():
 
 			# get type (discordant or chimeric)
@@ -239,42 +243,43 @@ def write_buffer(read_scores, output_writer):
 					read_scores[score_type][junc_type][score] += 1
 				# write row
 				output_writer.writerow(analysis_match)
-	buffer.clear()
-
-def score_read(line, sim_info, analysis_info, args):
+	result_buffer.clear()
+		
+def score_read(line_buffer, sim_info, analysis_info, args):
 	# score read in terms of positive/negate and true/false
 	# simplest scoring is based on whether or not a read was found in the analysis results
 	# and whether or not it should have been found (based on simulation results)
-			
-	read = get_read_properties(line)
-	
-	analysis_matches = {}
-		
-	# find any simulated integrations involving this read
-	# there might be multiple integrations crossed by a read or pair
-	read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
-	
-	# each read can be involved in one or more chimeric junctions, and at most one 
-	# discordant junctions.  if read is not involved in at least one chimeric and one
-	# discordant junction, add empty entries to read_sim_matches
-	if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
-		read_sim_matches['__discord'] = None
-	if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
-		read_sim_matches['__chimeric'] = None
-	
-	#  if read_sim_matches is not empty, it crosses at least one integration
-	# read is either true positive or false negative
-	assert len(read_sim_matches) >= 2
-	for int_id, sim_row in read_sim_matches.items():
 
-		# for each integration crossed by a read or pair, it could be in the results more than once
-		# as a pair (for one integration) and as a soft-clipped read (for another integration)
-		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
-				
-	# score matches
-	analysis_matches = score_matches(analysis_matches, args)
+	for line in line_buffer:
+		read = get_read_properties(line)
 	
-	return analysis_matches		
+		analysis_matches = {}
+		
+		# find any simulated integrations involving this read
+		# there might be multiple integrations crossed by a read or pair
+		read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
+	
+		# each read can be involved in one or more chimeric junctions, and at most one 
+		# discordant junctions.  if read is not involved in at least one chimeric and one
+		# discordant junction, add empty entries to read_sim_matches
+		if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
+			read_sim_matches['__discord'] = None
+		if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
+			read_sim_matches['__chimeric'] = None
+	
+		#  if read_sim_matches is not empty, it crosses at least one integration
+		# read is either true positive or false negative
+		assert len(read_sim_matches) >= 2
+		for int_id, sim_row in read_sim_matches.items():
+
+			# for each integration crossed by a read or pair, it could be in the results more than once
+			# as a pair (for one integration) and as a soft-clipped read (for another integration)
+			analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
+				
+		# score matches
+		result_buffer.append(score_matches(analysis_matches, args))
+	
+	return result_buffer	
 
 def score_matches(analysis_matches, args):
 	"""
@@ -303,8 +308,8 @@ def score_matches(analysis_matches, args):
 					match['found_score'] = 'tp'
 					
 					# check if integration was found in the correct place in the host
-					start_correct = (match['host_start_dist'] >= args.chimeric_threshold)
-					stop_correct = (match['host_stop_dist'] >= args.chimeric_threshold)
+					start_correct = (match['host_start_dist'] <= args.chimeric_threshold)
+					stop_correct = (match['host_stop_dist'] <= args.chimeric_threshold)
 					if match['correct_host_chr'] and start_correct and stop_correct:
 						match['host_score'] = 'tp'
 					else:
