@@ -500,6 +500,8 @@ def get_chimeric(chr, start, stop, samfile, threshold, buffer):
 	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
 	# The same is true for any coordinates passed to the samtools command utilities directly, such as pysam.fetch().
 	for read in samfile.fetch(chr, start, stop + 1):
+	
+
 		
 		# check that interval is at least threshold bases from either end of the read
 		mapped = get_mapped_ref(read, buffer, threshold)
@@ -526,9 +528,9 @@ def check_threshold(read, start, stop, threshold):
 	""""
 	check that there are least threshold bases that map to an interval (defined by start and stop)
 	"""
-	
 	rstart = read.get_reference_positions()[0]
-	rstop = read.get_reference_positions()[-1]
+	# need to account for 0-based numbering (stop already has this accounted for)
+	rstop = read.get_reference_positions()[-1] + 1
 	assert intersects(rstart, rstop, start, stop)
 	
 	if (rstop - start) < threshold:
