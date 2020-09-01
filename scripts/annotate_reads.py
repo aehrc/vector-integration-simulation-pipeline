@@ -50,7 +50,7 @@ def main(argv):
 		# use csv to read and write files
 		reader = csv.DictReader(info_file, delimiter = '\t')
 		
-		writer_fieldnames = list(reader.fieldnames) + ['left_chimeric', 'right_chimeric', 'left_discord', 'right_discord', 'multiple_discord', 'fake_discord']
+		writer_fieldnames = list(reader.fieldnames) + ['left_chimeric', 'right_chimeric', 'left_discord', 'right_discord', 'multiple_discord', 'fake_discord', 'discordant_and_chimeric']
 		
 		writer = csv.DictWriter(output, delimiter = '\t', fieldnames = writer_fieldnames)
 		writer.writeheader()
@@ -72,6 +72,10 @@ def main(argv):
 			# check for read pairs that cross multiple junctions
 			buffer = find_multiple_discordant(buffer)
 			
+			# check for read pairs that are discordant at one integration and chimeric at another integration
+			# assume that integrations are independent (even though they aren't in simulation), so these are not detectable
+			buffer = find_multiple_chimeric_discordant(buffer)
+			
 			# write rows in buffer
 			for row in buffer:
 				writer.writerow(row)
@@ -84,6 +88,68 @@ def main(argv):
 		
 	samfile.close()
 	
+def find_multiple_chimeric_discordant(buffer):
+	"""
+	Assume that in real data, integrations are independent, so two integrations do not
+	occur close enough to each other in the same cell that we can detect them.  This may
+	or may not be the case, but the number of these kinds of pairs of integrations is assumed
+	to be small enough that they're not worth worrying about. 
+	
+	If a read pair has one read that is chimeric, but it's also discordant about the same
+	or a different integration, only the chimeric read will be detected 
+	(and it won't be flagged as a discordant read pair). Assuming that
+	these events are a tiny minority in real data, here don't flag the discordant pairs
+	as something that should be detected (but instead add them to the 'discordant_and_chimeric'
+	category)
+	"""	
+	
+	to_delete = {}
+	for i, row in enumerate(buffer):
+	
+		# for each row, find reads that are both chimeric
+		# and discordant for any other integration
+		left_discord = row['left_discord'].split(';')
+		right_discord =  row['right_discord'].split(';')
+		to_delete[i] = {'left' : [], 'right' : []}
+		
+		# check for these reads in other rows
+		for row_2 in buffer:
+			# skip if this is the same as the one we're looking at
+			if row_2 == row:
+				continue
+				
+			# get read names for chimeric reads for this row
+			chimeric = row_2['left_chimeric'].split(";")
+			chimeric += row_2['right_chimeric'].split(";")
+			chimeric = [read[:-2] for read in chimeric]
+			
+			# check if chimeric reads in row_2 also occur in the list
+			# of discordant reads in row
+			for read in chimeric:
+				if read in left_discord:
+					to_delete[i]['left'].append(read)
+				if read in right_discord:
+					to_delete[i]['right'].append(read)
+			
+	# remove reads in to_delete
+	for row_num in to_delete.keys():
+		
+		# remove reads from left_discord
+		left_discord = buffer[row_num]['left_discord'].split(';')
+		left_discord = [read for read in left_discord if read not in to_delete[row_num]['left']]
+		buffer[row_num]['left_discord'] = ";".join(left_discord)
+		
+		# remove reads from right_discord
+		right_discord = buffer[row_num]['right_discord'].split(';')
+		right_discord = [read for read in right_discord if read not in to_delete[row_num]['right']]
+		buffer[row_num]['right_discord'] = ";".join(right_discord)		
+	
+		# removed reads go to 'discordant_and_chimeric'
+		buffer[row_num]['discordant_and_chimeric'] = [f"{read}_left" for read in to_delete[row_num]['left']]
+		buffer[row_num]['discordant_and_chimeric'] += [f"{read}_right" for read in to_delete[row_num]['right']]
+	
+	return buffer
+
 def find_multiple_discordant(buffer):
 	"""
 	a read might be discordant about two or more integration sites
@@ -219,8 +285,8 @@ def find_reads_crossing_ints(buffer, samfile, args, window_width):
 	
 		# if a read is both chimeric and discordant, chimeric takes priority 
 		# (but it shouldn't be both if the clipping threshold is the same for both read types)
-		#left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
-		#right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
+		left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
+		right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
 			
 		row['left_discord'] = ";".join(left_discord)
 		row['right_discord'] = ";".join(right_discord)
@@ -597,12 +663,16 @@ def remove_chimeric_from_discord(chimeric, discord):
 	check for read ids that are in both chimeric and discord - remove them from discord if they're in both
 	"""
 	# chimeric reads have /1 or /2 added
+	to_delete = []
 	chimeric = [read[:-2] for read in chimeric]
-	for i, read in enumerate(discord):
+	for read in discord:
 		if read in chimeric:
-			print(f"  removed a read that was in both chimeric and discord: {discord[i]}")
-			del discord[i]
-			
+			print(f"  removed a read that was in both chimeric and discord: {read}")
+			to_delete.append(read)
+	
+	# remove reads flagged for deletion
+	discord = [read for read in discord if read not in to_delete]
+	
 	return chimeric, discord
 
 if __name__ == "__main__":
