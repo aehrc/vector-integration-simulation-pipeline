@@ -447,7 +447,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			if analysis_row['Orientation'] == 'hv':
 				analysis_side = 'left'
 			elif analysis_row['Orientation'] == 'vh':
-				analysis_side = 'left'
+				analysis_side = 'right'
 			else:
 				raise ValueError(f'unknown Orientation in analysis results for read {readID}')
 			sim_matches['correct_side'] = (analysis_side == side)
