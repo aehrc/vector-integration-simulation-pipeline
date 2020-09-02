@@ -147,6 +147,7 @@ def find_multiple_chimeric_discordant(buffer):
 		# removed reads go to 'discordant_and_chimeric'
 		buffer[row_num]['discordant_and_chimeric'] = [f"{read}_left" for read in to_delete[row_num]['left']]
 		buffer[row_num]['discordant_and_chimeric'] += [f"{read}_right" for read in to_delete[row_num]['right']]
+		buffer[row_num]['discordant_and_chimeric'] = ";".join(buffer[row_num]['discordant_and_chimeric'])
 	
 	return buffer
 
@@ -370,17 +371,16 @@ def get_discordant(chr, start, stop, samfile, threshold, window_width, buffer):
 	
 	# extract read pairs in the desired window
 	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
-	window_start = start - int(round(window_width / 2)) - 1
+	window_start = start - window_width
 	if window_start < 1:
 		
 		window_start = 1
 	
-	window_stop = stop + int(round(window_width / 2))
+	window_stop = stop + window_width
 	if window_stop > samfile.get_reference_length(chr):
 		window_stop = samfile.get_reference_length(chr) 
 	if window_stop == window_start:
 		window_stop += 1
-	
 	
 	for read1, read2 in read_pair_generator(samfile, f"{chr}:{window_start}-{window_stop}"):
 			
@@ -500,8 +500,6 @@ def get_chimeric(chr, start, stop, samfile, threshold, buffer):
 	# pysam numbering is 0-based, with the only exception being the region string in the fetch() and pileup() methods. 
 	# The same is true for any coordinates passed to the samtools command utilities directly, such as pysam.fetch().
 	for read in samfile.fetch(chr, start, stop + 1):
-	
-
 		
 		# check that interval is at least threshold bases from either end of the read
 		mapped = get_mapped_ref(read, buffer, threshold)
