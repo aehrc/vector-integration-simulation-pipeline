@@ -30,7 +30,7 @@ def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--sim-info', help='information from simulation', required = True, type=str)
-	parser.add_argument('--sim-sam', help='sam file from read simulation', required = True, type=str)
+	parser.add_argument('--sim-bam', help='bam file from read simulation (must be sorted, indexed)', required = True, type=str)
 	parser.add_argument('--soft-threshold', help='threshold for number of bases that must be mapped when finding integrations in soft-clipped reads', type=int, default=20)
 	parser.add_argument('--discordant-threshold', help='threshold for number of bases that may be unmapped when finding integrations in discordant read pairs', type=int, default=20)
 	parser.add_argument('--mean-frag-len', help='mean framgement length used when simulating reads', type=int, default=500)
@@ -39,8 +39,8 @@ def main(argv):
 	parser.add_argument('--output', help='output file', required=False, default='annotated.tsv')
 	args = parser.parse_args()
 	
-	# read in bam/sam file
-	samfile = pysam.AlignmentFile(args.sim_sam)
+	# read in bam file
+	samfile = pysam.AlignmentFile(args.sim_bam)
 	
 	# iterate over integrations in info file and pull out reads crossing each one
 	# the sam/bam file has the same coordinates as the info file
