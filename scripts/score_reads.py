@@ -47,8 +47,7 @@ def main(argv):
 	parser.add_argument('--sim-info', help='information from simulation with reads annotated', required = True, type=str)
 	parser.add_argument('--analysis-info', help='information from analysis of simulated reads', required = True, type=str)
 	parser.add_argument('--sim-sam', help='sam file from ART with simulated reads (must not be binary!)', required=True, type=str)
-	parser.add_argument('--chimeric-threshold', help='maximum distance a chimeric read integration can be from where it should be before it is scored as incorrect', type=int, default=5)	
-	parser.add_argument('--discordant-threshold', help='maximum distance a discordant read pair integration can be from where it should be before it is scored as incorrect', type=int, default=150)
+	parser.add_argument('--wiggle-room', help='allow this number of bases wiggle room when deciding if sim and analysis reads overlap, and start and stop are in the same place', type=int, default=5)
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 	parser.add_argument('--threads', help='number of threads to use', required=False, type=int)
@@ -73,7 +72,7 @@ def main(argv):
 		# create DictWriter object for output
 		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
-					'host_start_dist', 'host_stop_dist', 'correct_virus', 'virus_start_dist',
+					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
 										fieldnames = header)
@@ -293,7 +292,7 @@ def score_read(line, sim_info, analysis_info, args):
 
 		# for each integration crossed by a read or pair, it could be in the results more than once
 		# as a pair (for one integration) and as a soft-clipped read (for another integration)
-		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info)
+		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info, args)
 		
 	score_matches(analysis_matches, args)
 	
@@ -326,14 +325,12 @@ def score_matches(analysis_matches, args):
 					match['found_score'] = 'tp'
 					
 					# check if integration was found in the correct place in the host
-					start_correct = (match['host_start_dist'] <= args.chimeric_threshold)
-					stop_correct = (match['host_stop_dist'] <= args.chimeric_threshold)
-					if match['correct_host_chr'] and start_correct and stop_correct:
+					if correct_pos(match, args):
 						match['host_score'] = 'tp'
 					else:
-						match['host_score'] = 'fn'
+						match['host_score'] = 'fn'							
 						
-					# check if integration was found in the correct place in the host
+					# check if integration was found in the correct virus
 					if match['correct_virus'] is True:
 						match['virus_score'] = 'tp'
 					else:
@@ -355,6 +352,51 @@ def score_matches(analysis_matches, args):
 					match['virus_score'] = 'tn'
 				
 	return analysis_matches
+
+def correct_pos(match, args, type = 'chimeric'):
+	"""
+	return true if match is in the correct position (overlap between sim and analysis coordinates), 
+	and false otherwise
+	
+	optionally, can set a threshold (args.wiggle_room) for checking
+	the location of the start and stops relative to each other
+	
+	if the 'type' is chimeric, and a chimeric threshold is set, require both anlysis start and stop to be
+	within threshold bases of their sim counterparts
+	if the 'type' is discordant, and a chimeric threshold is set, require either anlysis start and stop to be
+	within threshold bases of their sim counterparts
+	"""
+	assert isinstance(match, dict)
+	assert 'type' in match
+	assert 'correct_host_chr' in match
+	assert isinstance(match['correct_host_chr'], bool)
+	assert match['type'] in ['chimeric', 'discord']
+		
+	# get threshold for match type (chimeric or discordant)
+	if match['type'] == 'chimeric':
+		threshold = args.wiggle_room
+	else:
+		threshold = None
+
+	if isinstance(threshold, int):
+		assert threshold >= 0
+	else:
+		assert threshold is None
+	
+	# if we don't care about the number of bases distance
+	# (we never care for discordant pairs)
+	if threshold is None:
+		return match['host_coords_overlap']
+	
+	# are the start and stop positions correct?
+	start_correct = (match['host_start_dist'] <= threshold)
+	stop_correct = (match['host_stop_dist'] <= threshold)
+	
+	# return true if conditions are met for correct position, false otherwise
+	if match['correct_host_chr'] and start_correct and stop_correct and match['host_coords_overlap']:
+		return True
+
+	return False	
 
 def look_for_read_in_sim(readID, read_num, sim_info):
 	"""
@@ -382,7 +424,7 @@ def look_for_read_in_sim(readID, read_num, sim_info):
 			
 	return sim_ints
 
-def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_info):
+def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_info, args):
 	"""
 	Given a read id from a row in the simulation results, try to find a corresponding row
 	in the analysis results
@@ -468,7 +510,6 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 				sim_matches['correct_host_chr'] = (analysis_row['Chr'] == sim_row['chr'])
 			
 				# check distance between sim and analysis integration sites in host
-
 				if sim_matches['correct_host_chr']:
 					if side == 'left':
 						sim_start = int(sim_row['hPos'])
@@ -477,14 +518,20 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 					else:
 						sim_left_ambig = int(sim_row['juncLengths'].split(',')[0])
 						sim_right_ambig = int(sim_row['juncLengths'].split(',')[1])
-						sim_start = int(sim_row['hPos']) + sim_left_ambig
+						sim_start = int(sim_row['hPos']) + sim_left_ambig + int(sim_row['hDeleted'])
 						sim_stop = sim_start + sim_right_ambig						
 						
 					analysis_start = int(analysis_row['IntStart'])
 					analysis_stop = int(analysis_row['IntStop'])
-						
+					
+					# check distance between starts and stops	
 					sim_matches['host_start_dist'] = abs(sim_start - analysis_start)
-					sim_matches['host_stop_dist'] = abs(sim_stop - analysis_stop)	
+					sim_matches['host_stop_dist'] = abs(sim_stop - analysis_stop)
+					
+					# check if analysis and sim coordates overlap (allowing some wiggle room)
+					analysis_start -= args.wiggle_room
+					analysis_stop += args.wiggle_room
+					sim_matches['host_coords_overlap'] = intersect(sim_start, sim_stop, analysis_start, analysis_stop)	
 			
 				# check for correct virus
 				sim_matches['correct_virus'] = (analysis_row['VirusRef'] == sim_row['virus'])
@@ -504,6 +551,32 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			match_dict['n_found'] = len(matches)
 	
 	return matches
+	
+def intersect(start1, stop1, start2, stop2):
+	"""
+	check if two intervals, defined by start1, stop1, start2 and stop2, intersect
+	
+	use 0-based coordinates, but allow book-ending, so (3, 4) and (4, 5) do intersect
+	return True if they do, otherwise return False
+	
+	"""
+	assert isinstance(start1, int)
+	assert isinstance(stop2, int)
+	assert isinstance(start2, int)
+	assert isinstance(stop2, int)
+	assert start1 <= stop1
+	assert start2 <= stop2
+	
+	# if interval 1 is completely to the left of interval 2
+	if stop1 < start2:
+		return False
+	
+	# if interval 1 is completely to the right of interval2
+	if stop2 < start1:
+		return False
+		
+	return True
+	
 
 if __name__ == "__main__":
 	t0 = time.time()

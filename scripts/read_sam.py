@@ -2,8 +2,8 @@ import pysam
 import pdb
 from sys import argv
 
-correct = {'chr2-616' : '2', 'chr2-614' : '2', 'chr2-604': '2', 'chr2-576': '2'}
-incorrect = {'chr2-612': '2', 'chr2-610': '2', 'chr2-592': '2', 'chr2-580': '2', 'chr2-504' : '1', 'chr2-432' : '1'}
+correct = {'chr2-594', 'chr2-578'}
+incorrect = {'chr2-574', 'chr2-578', 'chr2-530', 'chr2-376', 'chr2-268'}
 
 
 def main(argv):
@@ -12,13 +12,17 @@ def main(argv):
 	count = 0
 	for line in samfile:
 		count += 1
-		if line.qname in incorrect.keys():
-			if line.is_read1 is (incorrect[line.qname] == '1'):
-				if line.is_reverse is True:
-					ori = 'reverse'
-				else:
-					ori = 'forward'
-				print(f"{line.qname} is {ori}, {line.cigarstring}")
+		if line.qname in incorrect:
+			if line.is_reverse is True:
+				ori = 'reverse'
+			else:
+				ori = 'forward'
+			if line.is_read1 is True:
+				read_num = '1'
+			else:
+				read_num = '2'
+
+			print(f"{line.qname}/{read_num} is {ori} with cigar {line.cigarstring} and pos {line.reference_start}")
 				#print(line.get_aligned_pairs())
 				#print()
 	
