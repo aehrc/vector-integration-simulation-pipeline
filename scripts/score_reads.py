@@ -434,6 +434,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 					}
 	matches = []
 	
+	
 	# look through rows of analysis for matches
 	for analysis_row in analysis_info:
 	
@@ -467,6 +468,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 				sim_matches['correct_host_chr'] = (analysis_row['Chr'] == sim_row['chr'])
 			
 				# check distance between sim and analysis integration sites in host
+
 				if sim_matches['correct_host_chr']:
 					if side == 'left':
 						sim_start = int(sim_row['hPos'])
