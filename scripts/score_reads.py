@@ -72,59 +72,62 @@ def main(argv):
 		# create DictWriter object for output
 		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
-					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_start_dist',
+					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_coords_overlap', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
 										fieldnames = header)
 		output_writer.writeheader()
 	
 		# create queues and lock
-		line_queue = mp.Queue()
-		result_queue = mp.Queue()
-		lock = mp.Lock()
-		
-		# create pool of workers
-		if args.threads is None:
-			args.threads = cpu_count()
-		workers = args.threads - 1
-		if workers < 1:
-			workers = 1
-			
-		# create output process
-		print(f"using {workers} workers")
-		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
-		output_p.start()
-		
-		workers = [mp.Process(target = process_lines, 
-					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
-					for i in range(workers)]
-		[worker.start() for worker in workers]
-		
-		# iterate over lines in samfile		
-		[line_queue.put(line) for line in samfile]
-		
-		# let the worker processes know that there's no more lines
-		[line_queue.put(None) for i in range(args.threads)]		
-		
-		[worker.join() for worker in workers]	
-		
-		output_p.join()
+# 		line_queue = mp.Queue()
+# 		result_queue = mp.Queue()
+# 		lock = mp.Lock()
+# 		
+# 		# create pool of workers
+# 		if args.threads is None:
+# 			args.threads = cpu_count()
+# 		workers = args.threads - 1
+# 		if workers < 1:
+# 			workers = 1
+# 			
+# 		# create output process
+# 		print(f"using {workers} workers")
+# 		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
+# 		output_p.start()
+# 		
+# 		workers = [mp.Process(target = process_lines, 
+# 					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
+# 					for i in range(workers)]
+# 		[worker.start() for worker in workers]
+# 		
+# 		# iterate over lines in samfile		
+# 		[line_queue.put(line) for line in samfile]
+# 		
+# 		# let the worker processes know that there's no more lines
+# 		[line_queue.put(None) for i in range(args.threads)]		
+# 		
+# 		[worker.join() for worker in workers]	
+# 		
+# 		output_p.join()
 
 		# for processing serially
-# 		for line in samfile:
-# 			if line[0] == '@':
-# 				continue
-# 			result = score_read(line, sim_info, analysis_info, args)
-# 			update_scores(read_scores, result)
-# 			for sim_match in result.keys():
-# 				for analysis_match in result[sim_match]:
-# 					output_writer.writerow(analysis_match)
+		read_count = 0
+		for line in samfile:
+			if line[0] == '@':
+				continue
+			read_count += 1
+			result = score_read(line, sim_info, analysis_info, args)
+			update_scores(read_scores, result)
+			for sim_match in result.keys():
+				for analysis_match in result[sim_match]:
+					output_writer.writerow(analysis_match)
 	
-	#print(f"\nscored {read_count} reads, which were scored: ")
-	#pp = pprint.PrettyPrinter(indent = 2)
-	#pp.pprint(read_scores)
+	print(f"\nscored {read_count} reads, which were scored: ")
+	pp = pprint.PrettyPrinter(indent = 2)
+	pp.pprint(read_scores)
 
-	#write_output_summary(outfile, read_scores, args)
+	write_output_summary(outfile, read_scores, args)
+
 	print(f"saved results to {args.output}")
 
 def process_lines(line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores):
@@ -325,13 +328,13 @@ def score_matches(analysis_matches, args):
 					match['found_score'] = 'tp'
 					
 					# check if integration was found in the correct place in the host
-					if correct_pos(match, args):
+					if correct_pos(match, args, ref = 'host'):
 						match['host_score'] = 'tp'
 					else:
 						match['host_score'] = 'fn'							
 						
 					# check if integration was found in the correct virus
-					if match['correct_virus'] is True:
+					if correct_pos(match, args, ref = 'virus'):
 						match['virus_score'] = 'tp'
 					else:
 						match['virus_score'] = 'fn'
@@ -353,7 +356,7 @@ def score_matches(analysis_matches, args):
 				
 	return analysis_matches
 
-def correct_pos(match, args, type = 'chimeric'):
+def correct_pos(match, args, ref):
 	"""
 	return true if match is in the correct position (overlap between sim and analysis coordinates), 
 	and false otherwise
@@ -361,15 +364,28 @@ def correct_pos(match, args, type = 'chimeric'):
 	optionally, can set a threshold (args.wiggle_room) for checking
 	the location of the start and stops relative to each other
 	
-	if the 'type' is chimeric, and a chimeric threshold is set, require both anlysis start and stop to be
+	if the 'type' is chimeric, and a chimeric threshold is set, require both analysis start and stop to be
 	within threshold bases of their sim counterparts
-	if the 'type' is discordant, and a chimeric threshold is set, require either anlysis start and stop to be
+	if the 'type' is discordant, and a chimeric threshold is set, require either analysis start and stop to be
 	within threshold bases of their sim counterparts
 	"""
+	
+	assert ref in ('host', 'virus')
+	if ref == 'host':
+		contig_col = 'correct_host_chr'
+		overlap_col = 'host_coords_overlap'
+		start_col = 'host_start_dist'
+		stop_col = 'host_stop_dist'
+	else:
+		contig_col = 'correct_virus'
+		overlap_col = 'virus_coords_overlap'
+		start_col = 'virus_start_dist'
+		stop_col = 'virus_stop_dist'		
+	
 	assert isinstance(match, dict)
 	assert 'type' in match
-	assert 'correct_host_chr' in match
-	assert isinstance(match['correct_host_chr'], bool)
+	assert contig_col in match
+	assert isinstance(match[contig_col], bool)
 	assert match['type'] in ['chimeric', 'discord']
 		
 	# get threshold for match type (chimeric or discordant)
@@ -386,14 +402,14 @@ def correct_pos(match, args, type = 'chimeric'):
 	# if we don't care about the number of bases distance
 	# (we never care for discordant pairs)
 	if threshold is None:
-		return match['host_coords_overlap']
+		return match[overlap_col]
 	
 	# are the start and stop positions correct?
-	start_correct = (match['host_start_dist'] <= threshold)
-	stop_correct = (match['host_stop_dist'] <= threshold)
+	start_correct = (match[start_col] <= threshold)
+	stop_correct = (match[stop_col] <= threshold)
 	
 	# return true if conditions are met for correct position, false otherwise
-	if match['correct_host_chr'] and start_correct and stop_correct and match['host_coords_overlap']:
+	if match[contig_col] and start_correct and stop_correct and match[overlap_col]:
 		return True
 
 	return False	
@@ -535,7 +551,23 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 			
 				# check for correct virus
 				sim_matches['correct_virus'] = (analysis_row['VirusRef'] == sim_row['virus'])
-			
+				
+				# check viral coordinates are correct
+				if sim_matches['correct_virus']:
+					sim_start, sim_stop = get_virus_coordinates(sim_row, side)
+					analysis_start = int(analysis_row['VirusStart'])
+					analysis_stop = int(analysis_row['VirusStop'])
+					
+					# check distance between starts and stops
+					sim_matches['virus_start_dist'] = abs(sim_start - analysis_start)
+					sim_matches['virus_stop_dist'] = abs(sim_stop - analysis_stop)
+					
+					# check if analysis and sim coordates overlap (allowing some wiggle room)
+					analysis_start -= args.wiggle_room
+					analysis_stop += args.wiggle_room
+					sim_matches['virus_coords_overlap'] = intersect(sim_start, sim_stop, analysis_start, analysis_stop)
+					
+								
 			# append a copy of sim_matches, so that in the case of multiple matches
 			# we can check for the best one
 			matches.append(dict(sim_matches))
@@ -576,6 +608,57 @@ def intersect(start1, stop1, start2, stop2):
 		return False
 		
 	return True
+	
+def get_virus_coordinates(sim_row, side):
+	"""
+	get expected (based on simulation) coordinates of integration in virus/vector
+	"""
+	
+	assert side in ('left', 'right')
+	
+	# get number of bases at the junction
+	if side == 'left':
+		n = int(sim_row['juncLengths'].split(",")[0])
+	else:
+		n = int(sim_row['juncLengths'].split(",")[1])
+	
+	# convert breakpoints into a usable list of lists
+	breakpoints = sim_row['vBreakpoints'].split(";")
+	assert all([len(i.split(",")) == 2 for i in breakpoints])
+	breakpoints = [(int(i.split(",")[0][1:]), int(i.split(",")[1][:-1])) for i in breakpoints]
+
+	# also need oris
+	oris = sim_row['vOris'].split(",")
+	assert all([i in( "+", "-") for i in oris])
+	
+	# get initial start and stop
+	if side == 'left':
+		i = 0
+		piece = breakpoints[i]
+		if oris[i] == '+':
+			start = piece[0]
+			stop = piece[0] + n
+		else:
+			start = piece[1] - n
+			stop = piece[1]
+	else:
+		i = -1
+		piece = breakpoints[i]
+		if oris[i] == '+':
+			start = piece[1] - n
+			stop = piece[1]
+		else:
+			start = piece[0]
+			stop = piece[0] + n	
+		
+	# check if both start and stop are within the piece - if not print a warning
+	# but don't go to the next piece (because the coordinates may have a gap and this
+	# creates complexities) 
+	
+	if start < piece[0] or stop > piece[1]:
+		print("warning: start and stop viral coordinates for integration {sim_row['id]} are outside of the first or last piece!  virus_score might be wrong")		
+	
+	return (start, stop)
 	
 
 if __name__ == "__main__":
