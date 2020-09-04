@@ -643,8 +643,6 @@ class Integrations(list):
 		self.model[integration.chr].insert(i, host)
 		i += 1
 
-		
-
 		# if we have ambiguous bases at the left junction, add these to the list too
 		assert len(integration.junc_props['junc_bases'][0]) == integration.junc_props['n_junc'][0]
 		if integration.junc_props['junc_types'][0] in ['gap', 'overlap']:
@@ -864,7 +862,7 @@ class Integrations(list):
 				deleted_bases[integration.chr] += integration.junc_props['host_del_len']
 
 				# format lists into comma-separated strings
-				breakpoints = ",".join([str(i) for i in integration.chunk.pieces])
+				breakpoints = ";".join([str(i) for i in integration.chunk.pieces])
 				oris = ','.join(integration.chunk.oris)
 				junc_types = ",".join(integration.junc_props['junc_types'])
 				junc_bases = ",".join(integration.junc_props['junc_bases'])
@@ -1171,9 +1169,11 @@ class Integration(dict):
 			return
 		
 		# number of bases deleted from host chromosome
+		
 		if junc_props['host_del'] is False:
 			self.host_deleted = 0 
 		else:
+
 			self.host_deleted = junc_props['host_del_len']
 			
 			# but only delete up to the length of the segment in which this integration occurs, 
@@ -1184,11 +1184,13 @@ class Integration(dict):
 				if not self.has_overlap(self.pos, self.pos, seg['coords'][0], seg['coords'][1]):
 					continue
 			
-				# are we trying to delete past the end of the segment?
+				# are we trying to delete past the end of the segment?		
 				if self.pos + self.host_deleted + self.n_overlap_bases() >= (seg['coords'][1] - min_sep):
 					self.host_deleted = seg['coords'][1] - self.pos - min_sep - self.n_overlap_bases()
+					self.junc_props['host_del_len'] = self.host_deleted
 					if self.host_deleted < 0:
-						raise ValueError('host deleted is less than zero')
+						self.pos = None
+						return
 				break
 			
 		# double check for valid chunk
