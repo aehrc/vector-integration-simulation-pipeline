@@ -1,6 +1,6 @@
 rule annotate_reads:
 	input:
-		sam = rules.convert.output.bam,
+		bam = rules.convert.output.bam,
 		info = rules.simulate_integrations.output.sim_info
 	output:
 		annotated_info = "{outpath}/{exp}/sim_ints/{samp}.int-info.annotated.tsv",
@@ -21,7 +21,7 @@ rule annotate_reads:
 		"""
 		python3 scripts/annotate_reads.py \
 		 --sim-info {input.info} \
-		 --sim-sam {input.sam} \
+		 --sim-bam {input.bam} \
 		 --output {output.annotated_info} \
 		 {params} 
 		"""
