@@ -79,54 +79,54 @@ def main(argv):
 		output_writer.writeheader()
 	
 		# create queues and lock
-# 		line_queue = mp.Queue()
-# 		result_queue = mp.Queue()
-# 		lock = mp.Lock()
-# 		
-# 		# create pool of workers
-# 		if args.threads is None:
-# 			args.threads = cpu_count()
-# 		workers = args.threads - 1
-# 		if workers < 1:
-# 			workers = 1
-# 			
-# 		# create output process
-# 		print(f"using {workers} workers")
-# 		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
-# 		output_p.start()
-# 		
-# 		workers = [mp.Process(target = process_lines, 
-# 					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
-# 					for i in range(workers)]
-# 		[worker.start() for worker in workers]
-# 		
-# 		# iterate over lines in samfile		
-# 		[line_queue.put(line) for line in samfile]
-# 		
-# 		# let the worker processes know that there's no more lines
-# 		[line_queue.put(None) for i in range(args.threads)]		
-# 		
-# 		[worker.join() for worker in workers]	
-# 		
-# 		output_p.join()
+		line_queue = mp.Queue()
+		result_queue = mp.Queue()
+		lock = mp.Lock()
+ 		
+ 		# create pool of workers
+		if args.threads is None:
+			args.threads = cpu_count()
+		workers = args.threads - 1
+		if workers < 1:
+			workers = 1
+ 			
+ 		# create output process
+		print(f"using {workers} workers")
+		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
+		output_p.start()
+ 		
+		workers = [mp.Process(target = process_lines, 
+ 					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
+ 					for i in range(workers)]
+		[worker.start() for worker in workers]
+ 		
+ 		# iterate over lines in samfile		
+		[line_queue.put(line) for line in samfile]
+ 		
+ 		# let the worker processes know that there's no more lines
+		[line_queue.put(None) for i in range(args.threads)]		
+ 		
+		[worker.join() for worker in workers]	
+ 		
+		output_p.join()
 
 		# for processing serially
-		read_count = 0
-		for line in samfile:
-			if line[0] == '@':
-				continue
-			read_count += 1
-			result = score_read(line, sim_info, analysis_info, args)
-			update_scores(read_scores, result)
-			for sim_match in result.keys():
-				for analysis_match in result[sim_match]:
-					output_writer.writerow(analysis_match)
-	
-	print(f"\nscored {read_count} reads, which were scored: ")
-	pp = pprint.PrettyPrinter(indent = 2)
-	pp.pprint(read_scores)
-
-	write_output_summary(outfile, read_scores, args)
+#		read_count = 0
+#		for line in samfile:
+#			if line[0] == '@':
+#				continue
+#			read_count += 1
+#			result = score_read(line, sim_info, analysis_info, args)
+#			update_scores(read_scores, result)
+#			for sim_match in result.keys():
+#				for analysis_match in result[sim_match]:
+#					output_writer.writerow(analysis_match)
+#	
+#	print(f"\nscored {read_count} reads, which were scored: ")
+#	pp = pprint.PrettyPrinter(indent = 2)
+#	pp.pprint(read_scores)
+#
+#	write_output_summary(outfile, read_scores, args)
 
 	print(f"saved results to {args.output}")
 
@@ -405,6 +405,8 @@ def correct_pos(match, args, ref):
 		return match[overlap_col]
 	
 	# are the start and stop positions correct?
+	if match[start_col] is None or match[stop_col] is None:
+		return False
 	start_correct = (match[start_col] <= threshold)
 	stop_correct = (match[stop_col] <= threshold)
 	
