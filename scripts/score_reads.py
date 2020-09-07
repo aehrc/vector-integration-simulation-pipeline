@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 
-
-##### NEED TO CHANGE TO SCORE DISCORDANT AND CHIMERIC SEPARATELY
-
-
 # Score simulated vs detected integrations on a per-read basis
 
 # score each read as a true positive, true negative, false positive or false negative
@@ -62,7 +58,7 @@ def main(argv):
 	analysis_info = read_csv(args.analysis_info)
 	
 	print(f"opening sam file: {args.sim_sam}")
-	with open(args.output, "w", newline = '') as outfile, open(args.sim_sam) as samfile:
+	with open(args.sim_sam) as samfile:
 
 		# keep count of true and false positives and negatives
 		read_scores = {'tp':0, 'tn':0, 'fp':0, 'fn':0}
@@ -70,18 +66,14 @@ def main(argv):
 		read_scores = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
 	
 		# create DictWriter object for output
-		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
+		output_header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
 					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_coords_overlap', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
-		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-										fieldnames = header)
-		output_writer.writeheader()
 	
-		# create queues and lock
+		# create queues
 		line_queue = mp.Queue()
 		result_queue = mp.Queue()
-		lock = mp.Lock()
  		
  		# create pool of workers
 		if args.threads is None:
@@ -92,11 +84,11 @@ def main(argv):
  			
  		# create output process
 		print(f"using {workers} workers")
-		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
+		output_p = mp.Process(target = write_results, args = (output_header, result_queue, read_scores, workers, args))
 		output_p.start()
  		
 		workers = [mp.Process(target = process_lines, 
- 					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
+ 					args =  (line_queue, result_queue, sim_info, analysis_info, args))
  					for i in range(workers)]
 		[worker.start() for worker in workers]
  		
@@ -111,16 +103,20 @@ def main(argv):
 		output_p.join()
 
 		# for processing serially
-#		read_count = 0
-#		for line in samfile:
-#			if line[0] == '@':
-#				continue
-#			read_count += 1
-#			result = score_read(line, sim_info, analysis_info, args)
-#			update_scores(read_scores, result)
-#			for sim_match in result.keys():
-#				for analysis_match in result[sim_match]:
-#					output_writer.writerow(analysis_match)
+#		with open(args.output, "w", newline = '') as outfile:
+#			output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+#										fieldnames = output_header)
+#			output_writer.writeheader()
+#			read_count = 0
+#			for line in samfile:
+#				if line[0] == '@':
+#					continue
+#				read_count += 1
+#				result = score_read(line, sim_info, analysis_info, args)
+#				update_scores(read_scores, result)
+#				for sim_match in result.keys():
+#					for analysis_match in result[sim_match]:
+#						output_writer.writerow(analysis_match)
 #	
 #	print(f"\nscored {read_count} reads, which were scored: ")
 #	pp = pprint.PrettyPrinter(indent = 2)
@@ -130,7 +126,7 @@ def main(argv):
 
 	print(f"saved results to {args.output}")
 
-def process_lines(line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores):
+def process_lines(line_queue, result_queue, sim_info, analysis_info, args):
 	"""
 	get samfile lines from queue, and write results to file
 	"""
@@ -223,15 +219,21 @@ def print_scores(read_scores):
 	print(f"accuracy \n  (TP + TN) / (TP + TN + FP + FN): {accuracy}")	
 	print()						
 
-def write_results(output_writer, result_queue, read_scores, n_workers, args):
+def write_results(output_file_header, result_queue, read_scores, n_workers, args):
 	"""
 	write results from one read to file, and aggregate to read_scores
 	"""
-	# check that there are some results for this read
 	
+	# open output file
+	outfile =  open(args.output, 'w', newline = '')
+	output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+										fieldnames = output_file_header)
+	output_writer.writeheader()
+
 	none_count = 0
 	while True:
 		result = result_queue.get()
+		# check that there are some results for this read
 		if result is None:
 			none_count += 1
 			if none_count == n_workers:
@@ -240,11 +242,13 @@ def write_results(output_writer, result_queue, read_scores, n_workers, args):
 				write_output_summary(output_writer, read_scores, args)
 				break
 		else:
+			# update read_scores and 
 			update_scores(read_scores, result)
 			for sim_match in result.keys():
 				for analysis_match in result[sim_match]:
 					output_writer.writerow(analysis_match)
-					
+	
+	outfile.close()				
 	return read_scores
 
 def update_scores(read_scores, result):
@@ -387,6 +391,10 @@ def correct_pos(match, args, ref):
 	assert contig_col in match
 	assert isinstance(match[contig_col], bool)
 	assert match['type'] in ['chimeric', 'discord']
+	
+	# if the match was on the wrong chromosome, it can't be in the correct place
+	if match[contig_col] is False:
+		return False
 		
 	# get threshold for match type (chimeric or discordant)
 	if match['type'] == 'chimeric':
@@ -405,8 +413,6 @@ def correct_pos(match, args, ref):
 		return match[overlap_col]
 	
 	# are the start and stop positions correct?
-	if match[start_col] is None or match[stop_col] is None:
-		return False
 	start_correct = (match[start_col] <= threshold)
 	stop_correct = (match[stop_col] <= threshold)
 	
