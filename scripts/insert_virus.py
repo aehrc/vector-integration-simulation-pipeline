@@ -61,7 +61,7 @@ search_length_overlap = 10000 # number of bases to search either side of randoml
 
 fasta_extensions = [".fa", ".fna", ".fasta"]
 
-min_sep = 1 # TODO - min_sep is command line argument
+default_min_sep = 500 # TODO - min_sep is command line argument
 
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -88,6 +88,7 @@ def main(argv):
 	parser.add_argument('--seed', help = 'seed for random number generator', default=12345, type=int)
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
 	parser.add_argument('--model-check', help = 'check integration model every new integration', action="store_true")
+	parser.add_argument('--min-sep', help='minimum separation for integrations', type=int, default=default_min_sep)
 	args = parser.parse_args()
 	
 	#### generate integrations ####		
@@ -109,7 +110,7 @@ def main(argv):
 	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True)
 	
 	# add integrations
-	seqs.add_integrations(probs, args.int_num, max_attempts, args.model_check)
+	seqs.add_integrations(probs, args.int_num, max_attempts, model_check = args.model_check, min_sep = args.min_sep)
 	seqs.add_episomes(probs, args.epi_num, max_attempts)
 	
 	
@@ -173,7 +174,7 @@ class Events(dict):
 		# instantiate random number generator
 		self.rng = np.random.default_rng(seed)
 		
-	def add_integrations(self, probs, int_num, max_attempts = 50, model_check = False):
+	def add_integrations(self, probs, int_num, max_attempts = 50, model_check = False, min_sep = 1):
 		"""
 		Add an Integrations object with int_num integrations, with types specified by probs,
 		to self
@@ -181,15 +182,21 @@ class Events(dict):
 		
 		assert isinstance(max_attempts, int)
 		assert isinstance(int_num, int)
+		assert isinstance(min_sep, int)
 		assert max_attempts > 0
 		assert int_num >= 0
+		assert min_sep > 0
+		
+		self.min_sep = min_sep
+		self.max_attempts = max_attempts
+		self.model_check = model_check
 		
 		# can only add integrations once
 		if 'ints' in self:
 			raise ValueError("integrations have already been added to this Events object") # is there a better error type for this?
 			
 		# instantiate Integrations object
-		self.ints = Integrations(self.host, self.virus, probs, self.rng, max_attempts)
+		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep)
 		
 		# add int_num integrations
 		if self.verbose is True:
@@ -321,7 +328,7 @@ class Integrations(list):
 	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
 	
 	"""
-	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False):
+	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1):
 		"""
 		Function 
 		to initialise Integrations object
@@ -333,6 +340,8 @@ class Integrations(list):
 		assert isinstance(max_attempts, int)
 		assert max_attempts > 0
 		assert isinstance(model_check, bool)
+		assert isinstance(min_sep, int)
+		assert min_sep > 0
 		
 		# assign properties common to all integrations
 		self.host = host
@@ -341,6 +350,7 @@ class Integrations(list):
 		self.rng = rng
 		self.max_attempts = max_attempts
 		self.model_check = model_check
+		self.min_sep = min_sep
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -467,7 +477,8 @@ class Integrations(list):
 								  rng = self.rng,
 								  int_id = len(self),
 								  chunk_props = chunk_props,
-								  junc_props = junc_props
+								  junc_props = junc_props,
+								  min_sep = self.min_sep
 								  )
 		t1 = time.time()
 		print(f"made integration in {t1-t0}s", flush=True)
@@ -1047,7 +1058,7 @@ class Integration(dict):
 	
 	This class is intended to be used by the Integrations class, which is essentially a list of Integration objects
 	"""
-	def __init__(self, host, virus, model, rng, int_id, chunk_props, junc_props):
+	def __init__(self, host, virus, model, rng, int_id, chunk_props, junc_props, min_sep):
 		"""
 		Function to initialise Integration object
 		portionType is 'whole' or 'portion' - the part of the virus that has been inserted
@@ -1122,6 +1133,9 @@ class Integration(dict):
 			assert junc_props['host_del_len'] == 0
 		
 		assert search_length_overlap > 0 and isinstance(search_length_overlap, int)
+		
+		assert isinstance(min_sep, int)
+		assert min_sep > 0
 			
 		# set parameters that won't be changed
 		self.search_length_overlap = search_length_overlap
@@ -1163,7 +1177,7 @@ class Integration(dict):
 		self.junc_props['junc_bases'] = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
 		
 		# get a position at which to integrate
-		pos_success = self.get_int_position(host[self.chr].seq, rng, model)
+		pos_success = self.get_int_position(host[self.chr].seq, rng, model, min_sep)
 		if pos_success is False:
 			self.pos = None
 			return
@@ -1217,7 +1231,7 @@ class Integration(dict):
 			n += self.junc_props['n_junc'][1]
 		return n
 		
-	def get_random_position(self, model, rng):
+	def get_random_position(self, model, rng, min_sep):
 		"""
 		based on current model, get a random position that is available for integration
 		(that is, doesn't already have an integration)
@@ -1245,7 +1259,7 @@ class Integration(dict):
 		# get a random postion from this part
 		return int(rng.choice(range(part[0], part[1])))	
 		
-	def get_int_position(self, chr, rng, model):
+	def get_int_position(self, chr, rng, model, min_sep):
 		"""
 		get a position at which to perform the integration
 		the position depends on the overlap type at each side of the overlap
@@ -1256,7 +1270,7 @@ class Integration(dict):
 
 		# if at both ends the junction is either 'clean' or 'gap', just get a random positon
 		if all([True if (i in ['clean', 'gap']) else False for i in self.junc_props['junc_types']]):
-			self.pos = self.get_random_position(model, rng)
+			self.pos = self.get_random_position(model, rng, min_sep)
 			return True
 			
 		# if overlap at both ends, look for both overlaps in host chromosome next to each other
@@ -1317,7 +1331,7 @@ class Integration(dict):
 		find bases from an overlap in the host chromosome
 		"""
 		# get position around which to search
-		start = self.get_random_position(model, rng)
+		start = self.get_random_position(model, rng, min_sep)
 		
 		# get start and stop positions for bases in host chromosome to search for overlaps
 		stop = start + self.search_length_overlap
