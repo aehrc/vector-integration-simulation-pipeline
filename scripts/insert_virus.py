@@ -1171,7 +1171,10 @@ class Integration(dict):
 
 		
 		# number of bases in overlaps must be less than the length of the integrated chunk
-		assert self.n_overlap_bases() < len(self.chunk.bases)
+		if self.n_overlap_bases() >= len(self.chunk.bases):
+			# TODO - enforce a minimum chunk length so that this never happes
+			self.pos = None
+			return			
 		
 		# set bases belonging to junction
 		self.junc_props['junc_bases'] = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
@@ -1277,7 +1280,7 @@ class Integration(dict):
 		elif self.junc_props['junc_types'][0] == 'overlap' and self.junc_props['junc_types'][1] == 'overlap':
 		
 			# make string with both overlap bases 
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0] + self.junc_props['junc_bases'][1], chr, rng, model)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0] + self.junc_props['junc_bases'][1], chr, rng, model, min_sep)
 			
 			# check for unsuccessful find
 			if self.pos == -1:
@@ -1295,7 +1298,7 @@ class Integration(dict):
 		elif self.junc_props['junc_types'][0] == 'overlap':
 			
 			# find position with overlap at which to do overlap
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0], chr, rng, model)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][0], chr, rng, model, min_sep)
 			# check for unsuccessful find
 			if self.pos == -1:
 				self.pos = None
@@ -1310,7 +1313,7 @@ class Integration(dict):
 		elif self.junc_props['junc_types'][1] == 'overlap':
 
 			# find position with overlap at which to do overlap
-			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][1], chr, rng, model)
+			self.pos = self.find_overlap_bases(self.junc_props['junc_bases'][1], chr, rng, model, min_sep)
 			# check for unsuccessful find
 			if self.pos == -1:
 				self.pos = None
@@ -1326,7 +1329,7 @@ class Integration(dict):
 			
 		return False		
 	
-	def find_overlap_bases(self, overlap_bases, chr, rng, model):
+	def find_overlap_bases(self, overlap_bases, chr, rng, model, min_sep):
 		"""
 		find bases from an overlap in the host chromosome
 		"""
