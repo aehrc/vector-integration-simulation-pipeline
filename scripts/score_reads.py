@@ -47,15 +47,26 @@ def main(argv):
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 	parser.add_argument('--threads', help='number of threads to use', required=False, type=int)
+	parser.add_argument('--polyidus', help='analysis of simulated reads was performed with polyidus', action='store_true')
+	parser.add_argument('--vifi', help='analysis of simulated reads was performed with ViFi', action='store_true')
 	
 	args = parser.parse_args()
+	
+	# check that we haven't specified polyidus and vifi
+	if args.vifi and args.polyidus:
+		raise ValueError("Data can only come from either ViFi or Polyidus (not both)")
 	
 	# read simulated and pipeline information into memory
 	print(f"opening simulated information: {args.sim_info}")
 	sim_info = read_csv(args.sim_info)
 
 	print(f"opening analysis information: {args.analysis_info}")
-	analysis_info = read_csv(args.analysis_info)
+	if args.polyidus is True:
+		analysis_info = read_polyidus_csv(args.analysis_info)
+	elif args.vifi is True:
+		analysis_info = read_vifi_file(args.analysis_info)
+	else:
+		analysis_info = read_csv(args.analysis_info)
 	
 	print(f"opening sam file: {args.sim_sam}")
 	with open(args.sim_sam) as samfile:
@@ -616,6 +627,133 @@ def intersect(start1, stop1, start2, stop2):
 		return False
 		
 	return True
+	
+def read_vifi_file(filename):	
+	"""
+	read output from ViFi (HpvIntegrationInfo.tsv), and convert into a format similar to our pipeline
+	so that it can be used in the same way
+	
+	since reads are listed on individal lines after the location of the site, collect all the 
+	lines with read IDs, and match up the viral and host information
+	
+	note that ViFi doesn't indicate if the read was read 1 or read 2, so can't check this
+	"""
+	data = []
+	with open(filename) as filehandle:
+		
+		next(filehandle) # skip header row 
+		site = None
+		buffer = []
+		
+		for row in filehandle:
+			# new integration site
+			if row[:3] == "##=":
+				# process previous integration rows
+				data += create_vifi_rows(buffer, site)
+				
+				# get information about this site
+				buffer = []
+				site = next(filehandle).strip()
+				
+			# read for current integration site
+			else:
+				buffer.append(row.strip())
+	
+	# process last integration
+	data += create_vifi_rows(buffer, site)
+			
+	pdb.set_trace()
+			
+	return data	
+
+def create_vifi_rows(buffer, site):
+	"""
+	use lines of ViFi results file to produce dict in our output style, for use in scoring
+	site contains the line with information about the integration site location
+	buffer contains a buffer of the lines with information about each read
+	
+	note that ViFi doesn't indicate if the read was read 1 or read 2, so can't check this
+	calling all the reads 'discordant', because we don't know which they are
+	"""
+	# for the first integration, we haven't got any information yet
+	if site is None:
+		return []
+	
+	# get information about integration site
+	site = site.split('\t')
+	chr = site[0]
+	data = []
+	
+	# pair up host and virus information for each read
+	pairs = {}
+	for row in buffer:
+		info = row.split('\t')
+		readID = info[0][2:]
+		pos = info[2]
+		forward = (info[3] == "True")
+		ref = info[1]
+		viral = info[1] != chr
+		
+		if readID not in pairs:
+			pairs[readID] = {}
+		
+		if viral:
+			key = 'viral'
+		else:
+			key = 'host'
+
+		pairs[readID][key] = {}
+		pairs[readID][key]['ref'] = ref
+		pairs[readID][key]['pos'] = pos
+		pairs[readID][key]['forward'] = forward
+			
+	# make one dict for each read
+	for readID in pairs:
+		read_data = dict()
+		read_data['Chr'] = chr
+		read_data['IntStart'] = pairs[readID]['host']['pos']
+		read_data['IntStop'] = pairs[readID]['host']['pos']
+		read_data['VirusRef'] = pairs[readID]['viral']['ref']
+		read_data['VirusStart'] =  pairs[readID]['viral']['pos']
+		read_data['VirusStop'] = pairs[readID]['viral']['pos']
+		read_data['Orientation'] = 'hv' if pairs[readID]['host']['forward'] else 'vh'
+		read_data['OverlapType'] = 'none'
+		read_data['Type'] = 'discordant'
+		read_data['ReadID'] = readID
+		data.append(read_data)
+	
+	return data
+	
+def read_polyidus_csv(filename):
+	"""
+	read output from polyidus (HpvIntegrationInfo.tsv), and convert into a format similar to our pipeline
+	so that it can be used in the same way
+	"""
+	with open(filename, newline = '') as filehandle:
+		
+		# create DictReader objects for inputs and read into memory
+		reader = csv.DictReader(filehandle, delimiter = '\t')
+		data = []
+		
+		for row in reader:
+			row_data = {}
+			row_data['Chr'] = row['ChromHost']
+			row_data['VirusRef'] = row['ChromViral']
+			row_data['OverlapType'] =  'none'
+			row_data['Type'] = 'chimeric'
+			
+			## TODO - each row combines muliple reads, each with a position in the host and virus, and a strand
+			# but the number of readnames doesn't match the number of other attributes, so it's unclear
+			# how to join up the read names with the other attributes.
+			
+			hPositions = row['PositionHost'].split(', ')
+			vPositions = row['PositionViral'].split(', ')
+			hOris = row['StrandHost'].split(', ')
+			readIDs = row['ReadNames'].split(', ')
+			data.append(row_data)
+			
+	return data
+	
 	
 def get_virus_coordinates(sim_row, side):
 	"""
