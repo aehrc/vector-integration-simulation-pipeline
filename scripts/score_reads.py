@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
 
-
-##### NEED TO CHANGE TO SCORE DISCORDANT AND CHIMERIC SEPARATELY
-
-
 # Score simulated vs detected integrations on a per-read basis
 
 # score each read as a true positive, true negative, false positive or false negative
@@ -51,18 +47,29 @@ def main(argv):
 	parser.add_argument('--output', help='output file for results', required=False, default='results.tsv')
 	parser.add_argument('--output-summary', help='file for one-line output summary', required=False, default='results-summary.tsv')
 	parser.add_argument('--threads', help='number of threads to use', required=False, type=int)
+	parser.add_argument('--polyidus', help='analysis of simulated reads was performed with polyidus', action='store_true')
+	parser.add_argument('--vifi', help='analysis of simulated reads was performed with ViFi', action='store_true')
 	
 	args = parser.parse_args()
+	
+	# check that we haven't specified polyidus and vifi
+	if args.vifi and args.polyidus:
+		raise ValueError("Data can only come from either ViFi or Polyidus (not both)")
 	
 	# read simulated and pipeline information into memory
 	print(f"opening simulated information: {args.sim_info}")
 	sim_info = read_csv(args.sim_info)
 
 	print(f"opening analysis information: {args.analysis_info}")
-	analysis_info = read_csv(args.analysis_info)
+	if args.polyidus is True:
+		analysis_info = read_polyidus_csv(args.analysis_info)
+	elif args.vifi is True:
+		analysis_info = read_vifi_file(args.analysis_info)
+	else:
+		analysis_info = read_csv(args.analysis_info)
 	
 	print(f"opening sam file: {args.sim_sam}")
-	with open(args.output, "w", newline = '') as outfile, open(args.sim_sam) as samfile:
+	with open(args.sim_sam) as samfile:
 
 		# keep count of true and false positives and negatives
 		read_scores = {'tp':0, 'tn':0, 'fp':0, 'fn':0}
@@ -70,67 +77,67 @@ def main(argv):
 		read_scores = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
 	
 		# create DictWriter object for output
-		header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
+		output_header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
 					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_coords_overlap', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
-		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-										fieldnames = header)
-		output_writer.writeheader()
 	
-		# create queues and lock
-# 		line_queue = mp.Queue()
-# 		result_queue = mp.Queue()
-# 		lock = mp.Lock()
-# 		
-# 		# create pool of workers
-# 		if args.threads is None:
-# 			args.threads = cpu_count()
-# 		workers = args.threads - 1
-# 		if workers < 1:
-# 			workers = 1
-# 			
-# 		# create output process
-# 		print(f"using {workers} workers")
-# 		output_p = mp.Process(target = write_results, args = (output_writer, result_queue, read_scores, workers, args))
-# 		output_p.start()
-# 		
-# 		workers = [mp.Process(target = process_lines, 
-# 					args =  (line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores))
-# 					for i in range(workers)]
-# 		[worker.start() for worker in workers]
-# 		
-# 		# iterate over lines in samfile		
-# 		[line_queue.put(line) for line in samfile]
-# 		
-# 		# let the worker processes know that there's no more lines
-# 		[line_queue.put(None) for i in range(args.threads)]		
-# 		
-# 		[worker.join() for worker in workers]	
-# 		
-# 		output_p.join()
+		# create queues
+		line_queue = mp.Queue()
+		result_queue = mp.Queue()
+ 		
+ 		# create pool of workers
+		if args.threads is None:
+			args.threads = cpu_count()
+		workers = args.threads - 1
+		if workers < 1:
+			workers = 1
+ 			
+ 		# create output process
+		print(f"using {workers} workers")
+		output_p = mp.Process(target = write_results, args = (output_header, result_queue, read_scores, workers, args))
+		output_p.start()
+ 		
+		workers = [mp.Process(target = process_lines, 
+ 					args =  (line_queue, result_queue, sim_info, analysis_info, args))
+ 					for i in range(workers)]
+		[worker.start() for worker in workers]
+ 		
+ 		# iterate over lines in samfile		
+		[line_queue.put(line) for line in samfile]
+ 		
+ 		# let the worker processes know that there's no more lines
+		[line_queue.put(None) for i in range(args.threads)]		
+ 		
+		[worker.join() for worker in workers]	
+ 		
+		output_p.join()
 
 		# for processing serially
-		read_count = 0
-		for line in samfile:
-			if line[0] == '@':
-				continue
-			read_count += 1
-			result = score_read(line, sim_info, analysis_info, args)
-			update_scores(read_scores, result)
-			for sim_match in result.keys():
-				for analysis_match in result[sim_match]:
-					output_writer.writerow(analysis_match)
-	
-	print(f"\nscored {read_count} reads, which were scored: ")
-	pp = pprint.PrettyPrinter(indent = 2)
-	pp.pprint(read_scores)
-
-	write_output_summary(outfile, read_scores, args)
+#		with open(args.output, "w", newline = '') as outfile:
+#			output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+#										fieldnames = output_header)
+#			output_writer.writeheader()
+#			read_count = 0
+#			for line in samfile:
+#				if line[0] == '@':
+#					continue
+#				read_count += 1
+#				result = score_read(line, sim_info, analysis_info, args)
+#				update_scores(read_scores, result)
+#				for sim_match in result.keys():
+#					for analysis_match in result[sim_match]:
+#						output_writer.writerow(analysis_match)
+#	
+#	print(f"\nscored {read_count} reads, which were scored: ")
+#	pp = pprint.PrettyPrinter(indent = 2)
+#	pp.pprint(read_scores)
+#
+#	write_output_summary(outfile, read_scores, args)
 
 	print(f"saved results to {args.output}")
 
-def process_lines(line_queue, result_queue, lock, sim_info, analysis_info, args, output_writer, read_scores):
+def process_lines(line_queue, result_queue, sim_info, analysis_info, args):
 	"""
 	get samfile lines from queue, and write results to file
 	"""
@@ -223,15 +230,21 @@ def print_scores(read_scores):
 	print(f"accuracy \n  (TP + TN) / (TP + TN + FP + FN): {accuracy}")	
 	print()						
 
-def write_results(output_writer, result_queue, read_scores, n_workers, args):
+def write_results(output_file_header, result_queue, read_scores, n_workers, args):
 	"""
 	write results from one read to file, and aggregate to read_scores
 	"""
-	# check that there are some results for this read
 	
+	# open output file
+	outfile =  open(args.output, 'w', newline = '')
+	output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+										fieldnames = output_file_header)
+	output_writer.writeheader()
+
 	none_count = 0
 	while True:
 		result = result_queue.get()
+		# check that there are some results for this read
 		if result is None:
 			none_count += 1
 			if none_count == n_workers:
@@ -240,11 +253,13 @@ def write_results(output_writer, result_queue, read_scores, n_workers, args):
 				write_output_summary(output_writer, read_scores, args)
 				break
 		else:
+			# update read_scores and 
 			update_scores(read_scores, result)
 			for sim_match in result.keys():
 				for analysis_match in result[sim_match]:
 					output_writer.writerow(analysis_match)
-					
+	
+	outfile.close()				
 	return read_scores
 
 def update_scores(read_scores, result):
@@ -387,6 +402,10 @@ def correct_pos(match, args, ref):
 	assert contig_col in match
 	assert isinstance(match[contig_col], bool)
 	assert match['type'] in ['chimeric', 'discord']
+	
+	# if the match was on the wrong chromosome, it can't be in the correct place
+	if match[contig_col] is False:
+		return False
 		
 	# get threshold for match type (chimeric or discordant)
 	if match['type'] == 'chimeric':
@@ -608,6 +627,133 @@ def intersect(start1, stop1, start2, stop2):
 		return False
 		
 	return True
+	
+def read_vifi_file(filename):	
+	"""
+	read output from ViFi (HpvIntegrationInfo.tsv), and convert into a format similar to our pipeline
+	so that it can be used in the same way
+	
+	since reads are listed on individal lines after the location of the site, collect all the 
+	lines with read IDs, and match up the viral and host information
+	
+	note that ViFi doesn't indicate if the read was read 1 or read 2, so can't check this
+	"""
+	data = []
+	with open(filename) as filehandle:
+		
+		next(filehandle) # skip header row 
+		site = None
+		buffer = []
+		
+		for row in filehandle:
+			# new integration site
+			if row[:3] == "##=":
+				# process previous integration rows
+				data += create_vifi_rows(buffer, site)
+				
+				# get information about this site
+				buffer = []
+				site = next(filehandle).strip()
+				
+			# read for current integration site
+			else:
+				buffer.append(row.strip())
+	
+	# process last integration
+	data += create_vifi_rows(buffer, site)
+			
+	pdb.set_trace()
+			
+	return data	
+
+def create_vifi_rows(buffer, site):
+	"""
+	use lines of ViFi results file to produce dict in our output style, for use in scoring
+	site contains the line with information about the integration site location
+	buffer contains a buffer of the lines with information about each read
+	
+	note that ViFi doesn't indicate if the read was read 1 or read 2, so can't check this
+	calling all the reads 'discordant', because we don't know which they are
+	"""
+	# for the first integration, we haven't got any information yet
+	if site is None:
+		return []
+	
+	# get information about integration site
+	site = site.split('\t')
+	chr = site[0]
+	data = []
+	
+	# pair up host and virus information for each read
+	pairs = {}
+	for row in buffer:
+		info = row.split('\t')
+		readID = info[0][2:]
+		pos = info[2]
+		forward = (info[3] == "True")
+		ref = info[1]
+		viral = info[1] != chr
+		
+		if readID not in pairs:
+			pairs[readID] = {}
+		
+		if viral:
+			key = 'viral'
+		else:
+			key = 'host'
+
+		pairs[readID][key] = {}
+		pairs[readID][key]['ref'] = ref
+		pairs[readID][key]['pos'] = pos
+		pairs[readID][key]['forward'] = forward
+			
+	# make one dict for each read
+	for readID in pairs:
+		read_data = dict()
+		read_data['Chr'] = chr
+		read_data['IntStart'] = pairs[readID]['host']['pos']
+		read_data['IntStop'] = pairs[readID]['host']['pos']
+		read_data['VirusRef'] = pairs[readID]['viral']['ref']
+		read_data['VirusStart'] =  pairs[readID]['viral']['pos']
+		read_data['VirusStop'] = pairs[readID]['viral']['pos']
+		read_data['Orientation'] = 'hv' if pairs[readID]['host']['forward'] else 'vh'
+		read_data['OverlapType'] = 'none'
+		read_data['Type'] = 'discordant'
+		read_data['ReadID'] = readID
+		data.append(read_data)
+	
+	return data
+	
+def read_polyidus_csv(filename):
+	"""
+	read output from polyidus (HpvIntegrationInfo.tsv), and convert into a format similar to our pipeline
+	so that it can be used in the same way
+	"""
+	with open(filename, newline = '') as filehandle:
+		
+		# create DictReader objects for inputs and read into memory
+		reader = csv.DictReader(filehandle, delimiter = '\t')
+		data = []
+		
+		for row in reader:
+			row_data = {}
+			row_data['Chr'] = row['ChromHost']
+			row_data['VirusRef'] = row['ChromViral']
+			row_data['OverlapType'] =  'none'
+			row_data['Type'] = 'chimeric'
+			
+			## TODO - each row combines muliple reads, each with a position in the host and virus, and a strand
+			# but the number of readnames doesn't match the number of other attributes, so it's unclear
+			# how to join up the read names with the other attributes.
+			
+			hPositions = row['PositionHost'].split(', ')
+			vPositions = row['PositionViral'].split(', ')
+			hOris = row['StrandHost'].split(', ')
+			readIDs = row['ReadNames'].split(', ')
+			data.append(row_data)
+			
+	return data
+	
 	
 def get_virus_coordinates(sim_row, side):
 	"""
