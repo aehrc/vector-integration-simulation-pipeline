@@ -734,6 +734,7 @@ def read_polyidus_csv(filename):
 		# create DictReader objects for inputs and read into memory
 		reader = csv.DictReader(filehandle, delimiter = '\t')
 		data = []
+		read_ids = []
 		
 		for row in reader:
 			row_data = {}
@@ -750,8 +751,27 @@ def read_polyidus_csv(filename):
 			vPositions = row['PositionViral'].split(', ')
 			hOris = row['StrandHost'].split(', ')
 			readIDs = row['ReadNames'].split(', ')
-			data.append(row_data)
 			
+			# make one row per read, if we haven't already used this read
+			for i, read in enumerate(readIDs):
+				if read not in read_ids:
+					read_ids.append(read)
+					
+					
+					# need to make copy of dict
+					row_data = dict(row_data)
+					
+					# add info about this read to dict
+					row_data['IntStart'] = hPositions[i]
+					row_data['IntStop'] = hPositions[i]
+					row_data['VirusStart'] = vPositions[i]
+					row_data['VirusStop'] = vPositions[i]
+					row_data['Orientation'] = 'hv' if hOris[i] == "Positive" else 'vh'
+					row_data['type'] = 'chimeric'
+					row_data['ReadID'] = read[:-2] + '/' + read[-1]
+					
+					data.append(row_data)
+
 	return data
 	
 	
