@@ -67,6 +67,14 @@ def main(argv):
 		analysis_info = read_vifi_file(args.analysis_info)
 	else:
 		analysis_info = read_csv(args.analysis_info)
+		
+	# check that we didn't accidentally leave out --polyidus or --vifi by checking if fields are missing from analysis_info
+	# that would only be missing in this case
+	if args.polyidus is False and args.vifi is False:
+		if 'merged' not in analysis_info[0]:
+			print("\nNo special input was specified, but it looks like the analysis file comes from a third party tool")
+			print("Please specify --polyidus or --vifi\n")
+			return
 	
 	print(f"opening sam file: {args.sim_sam}")
 	with open(args.sim_sam) as samfile:
@@ -662,8 +670,6 @@ def read_vifi_file(filename):
 	# process last integration
 	data += create_vifi_rows(buffer, site)
 			
-	pdb.set_trace()
-			
 	return data	
 
 def create_vifi_rows(buffer, site):
@@ -738,8 +744,8 @@ def read_polyidus_csv(filename):
 		
 		for row in reader:
 			row_data = {}
-			row_data['Chr'] = row['ChromHost']
-			row_data['VirusRef'] = row['ChromViral']
+			row_data['Chr'] = row['Chrom']
+			row_data['VirusRef'] = row['ChromVirus']
 			row_data['OverlapType'] =  'none'
 			row_data['Type'] = 'chimeric'
 			
@@ -747,28 +753,27 @@ def read_polyidus_csv(filename):
 			# but the number of readnames doesn't match the number of other attributes, so it's unclear
 			# how to join up the read names with the other attributes.
 			
-			hPositions = row['PositionHost'].split(', ')
-			vPositions = row['PositionViral'].split(', ')
-			hOris = row['StrandHost'].split(', ')
-			readIDs = row['ReadNames'].split(', ')
+			hPosition = int(row['IntegrationSite'])
+			vPosition = int(row['ViralIntegrationSite'])
+			#hOris = row['StrandHost'].split(', ')
+			readIDs = row['FragmentName'].split(', ')
 			
 			# make one row per read, if we haven't already used this read
 			for i, read in enumerate(readIDs):
 				if read not in read_ids:
 					read_ids.append(read)
 					
-					
 					# need to make copy of dict
 					row_data = dict(row_data)
 					
 					# add info about this read to dict
-					row_data['IntStart'] = hPositions[i]
-					row_data['IntStop'] = hPositions[i]
-					row_data['VirusStart'] = vPositions[i]
-					row_data['VirusStop'] = vPositions[i]
-					row_data['Orientation'] = 'hv' if hOris[i] == "Positive" else 'vh'
+					row_data['IntStart'] = hPosition
+					row_data['IntStop'] = hPosition
+					row_data['VirusStart'] = vPosition
+					row_data['VirusStop'] = vPosition
+					#row_data['Orientation'] = 'hv' if hOris[i] == "Positive" else 'vh'
 					row_data['type'] = 'chimeric'
-					row_data['ReadID'] = read[:-2] + '/' + read[-1]
+					row_data['ReadID'] = read
 					
 					data.append(row_data)
 
