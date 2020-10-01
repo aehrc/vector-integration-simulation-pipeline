@@ -5,7 +5,7 @@ import os
 
 from snakemake_rules import parse_config
 
-config, df, ref_dict = parse_config(config)
+config, sim_df, ref_dict = parse_config(config)
 
 
 #####################################################
@@ -19,7 +19,7 @@ rule all:
 			exp = list(config.keys()), # config is imported as ordered dict
 			outpath = [config[exp]['out_directory'] for exp in config.keys()]
 			),
-		df.loc[:,'annotated_info_filename'],
+		sim_df.loc[:,'annotated_info_filename'],
 		
 
 

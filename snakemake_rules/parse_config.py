@@ -18,12 +18,14 @@ default_p_gap = [0.3]
 default_lambda_junction = [4]
 default_p_host_deletion = [0.2]
 default_lambda_host_deletion = [1000]
+default_min_sep = [500]
 # read simulation parameters
 default_read_len = [150]
 default_fcov = [10]
 default_frag_len = [500]
 default_frag_std = [30]
 default_seq_sys = ["HS25"]
+
 
 
 
@@ -69,6 +71,7 @@ def parse_config(config):
 		check_type(config, exp, 'seed_increment', int)
 
 		# integration parameters
+		config = standard_checks(config, exp, 'min_sep', default_min_sep, list, int) 
 		config = standard_checks(config, exp, 'int_num', default_int_num, list, int) 
 		config = standard_checks(config, exp, 'epi_num', default_int_num, list, int) 
 		config = standard_checks(config, exp, 'p_whole', default_p_whole, list, (int, float)) 
@@ -131,6 +134,7 @@ def parse_config(config):
 				 'virus_name',
 				 'int_num',
 				 'epi_num',
+				 'min_sep',
 				 'p_whole',
 				 'p_rearrange',
 				 'p_delete',
@@ -172,6 +176,7 @@ def parse_config(config):
 			config[exp]['viruses'].keys(),		#4
 			config[exp]['int_num'],
 			config[exp]['epi_num'],
+			config[exp]['min_sep'],
 			config[exp]['p_whole'],
 			config[exp]['p_rearrange'],
 			config[exp]['p_delete'],
