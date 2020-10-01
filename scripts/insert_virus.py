@@ -61,7 +61,7 @@ search_length_overlap = 10000 # number of bases to search either side of randoml
 
 fasta_extensions = [".fa", ".fna", ".fasta"]
 
-default_min_sep = 500 # TODO - min_sep is command line argument
+default_min_sep = 500 
 
 
 pp = pprint.PrettyPrinter(indent=4)
@@ -194,6 +194,12 @@ class Events(dict):
 		# can only add integrations once
 		if 'ints' in self:
 			raise ValueError("integrations have already been added to this Events object") # is there a better error type for this?
+			
+		# check that the number of requested integrations will fit in the host, given the requested minimum separation
+		# rule of thumb is that we allow 4*min_sep for each integration
+		total_host_length = sum([len(seq) for seq in self.host.values()])
+		if self.min_sep * 4 * int_num > total_host_length:
+			raise ValueError("The requested number of integrations, with the specified minimum separation, are not likely to fit into the specified host.  Either decrease the number of integrations or the minimum separation.")
 			
 		# instantiate Integrations object
 		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep)
@@ -393,7 +399,6 @@ class Integrations(list):
 		# this is to be updated every time we do an integration
 
 		self.model = {chr : [{'origin': 'host', 'coords':(0, len(seq)), "ori" : "+", 'seq_name': chr}] for chr, seq in host.items()}
-	
 			
 
 	def set_probs_default(self, key, default):
@@ -1135,7 +1140,7 @@ class Integration(dict):
 		assert search_length_overlap > 0 and isinstance(search_length_overlap, int)
 		
 		assert isinstance(min_sep, int)
-		assert min_sep > 0
+		assert min_sep > 1
 			
 		# set parameters that won't be changed
 		self.search_length_overlap = search_length_overlap
@@ -1172,12 +1177,12 @@ class Integration(dict):
 		
 		# number of bases in overlaps must be less than the length of the integrated chunk
 		if self.n_overlap_bases() >= len(self.chunk.bases):
-			# TODO - enforce a minimum chunk length so that this never happes
 			self.pos = None
-			return			
+			return
 		
 		# set bases belonging to junction
 		self.junc_props['junc_bases'] = (self.get_junc_bases(rng, 'left'), self.get_junc_bases(rng, 'right'))
+
 		
 		# get a position at which to integrate
 		pos_success = self.get_int_position(host[self.chr].seq, rng, model, min_sep)
