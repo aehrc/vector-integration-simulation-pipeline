@@ -219,7 +219,7 @@ def parse_results_tsv(path):
 					'IntStop' 		: row['IntStop'],
 					'Orientation'	: row['Orientation'],
 					'ReadID'     	: row['ReadID'],
-					'id'			: f"{row['Chr']}/{row['IntStart']}/{row['Virus']}/{row['VirusStart']}/{row['ReadID']}"
+					'id'			: f"{row['Chr']}/{row['IntStart']}/{row['VirusRef']}/{row['VirusStart']}/{row['ReadID']}"
 					}
 
 			data.append(info)
