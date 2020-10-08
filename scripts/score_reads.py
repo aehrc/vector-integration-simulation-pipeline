@@ -354,13 +354,13 @@ def score_matches(analysis_matches, args):
 					if correct_pos(match, args, ref = 'host'):
 						match['host_score'] = 'tp'
 					else:
-						match['host_score'] = 'fn'							
+						match['host_score'] = 'fp'							
 						
 					# check if integration was found in the correct virus
 					if correct_pos(match, args, ref = 'virus'):
 						match['virus_score'] = 'tp'
 					else:
-						match['virus_score'] = 'fn'
+						match['virus_score'] = 'fp'
 					
 				else:
 					match['found_score'] = 'fn'
