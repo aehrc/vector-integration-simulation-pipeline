@@ -36,6 +36,9 @@ def main(argv):
 	# import infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
 	
+	# remove any simulated integrations that don't have any supporting reads
+	sim = remove_unsupported_ints(sim)
+	
 	# to store results
 	scored_sim_results = []
 	
@@ -319,6 +322,25 @@ def overlap(a1, a2, b1, b2):
 		return False
 	else:
 		return True
+		
+def remove_unsupported_ints(sim):
+	"""
+	remove any integrations that are not supported by any reads
+	"""
+
+	
+	for i, row in enumerate(sim):
+		if row['left_chimeric'] != "":
+			continue
+		if row['right_chimeric'] != '':
+			continue
+		if row['left_discord'] != '':
+			continue
+		if row['right_discord'] != '':
+			continue
+		sim.pop(i)
+	
+	return sim
 	
 if __name__ == "__main__":
 	main(argv[1:])
