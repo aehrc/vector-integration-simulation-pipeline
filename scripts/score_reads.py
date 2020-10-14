@@ -33,6 +33,7 @@ import pprint
 import multiprocessing as mp
 import functools
 import time
+import re
 
 
 n_print = 10000
@@ -49,6 +50,7 @@ def main(argv):
 	parser.add_argument('--threads', help='number of threads to use', required=False, type=int)
 	parser.add_argument('--polyidus', help='analysis of simulated reads was performed with polyidus', action='store_true')
 	parser.add_argument('--vifi', help='analysis of simulated reads was performed with ViFi', action='store_true')
+	parser.add_argument('--merged-reads', help='a text file containing names of merged reads, otherwise all reads are assumed to be unmerged')
 	
 	args = parser.parse_args()
 	
@@ -59,6 +61,13 @@ def main(argv):
 	# read simulated and pipeline information into memory
 	print(f"opening simulated information: {args.sim_info}")
 	sim_info = read_csv(args.sim_info)
+	
+	# read merged reads into memory
+	merged_reads = []
+	if args.merged_reads is not None:
+		with open(args.merged_reads) as handle:
+			for line in handle:
+				merged_reads.append(line.strip())
 
 	print(f"opening analysis information: {args.analysis_info}")
 	if args.polyidus is True:
@@ -85,67 +94,67 @@ def main(argv):
 		read_scores = {score_type : {'chimeric' : dict(read_scores), 'discord' : dict(read_scores)} for score_type in score_types}
 	
 		# create DictWriter object for output
-		output_header =  ['readID', 'intID'] + score_types + ['found', 'n_found',
+		output_header =  ['readID', 'merged', 'intID'] + score_types + ['found', 'n_found',
 					'side', 'correct_side', 'type', 'correct_type', 'correct_host_chr',
 					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_coords_overlap', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
 	
 		# create queues
-		line_queue = mp.Queue()
-		result_queue = mp.Queue()
+#		line_queue = mp.Queue()
+#		result_queue = mp.Queue()
  		
  		# create pool of workers
-		if args.threads is None:
-			args.threads = cpu_count()
-		workers = args.threads - 1
-		if workers < 1:
-			workers = 1
+#		if args.threads is None:
+#			args.threads = cpu_count()
+#		workers = args.threads - 1
+#		if workers < 1:
+#			workers = 1
  			
  		# create output process
-		print(f"using {workers} workers")
-		output_p = mp.Process(target = write_results, args = (output_header, result_queue, read_scores, workers, args))
-		output_p.start()
+#		print(f"using {workers} workers")
+#		output_p = mp.Process(target = write_results, args = (output_header, result_queue, read_scores, workers, args))
+#		output_p.start()
  		
-		workers = [mp.Process(target = process_lines, 
- 					args =  (line_queue, result_queue, sim_info, analysis_info, args))
- 					for i in range(workers)]
-		[worker.start() for worker in workers]
+#		workers = [mp.Process(target = process_lines, 
+# 					args =  (line_queue, result_queue, sim_info, analysis_info, args, merged_reads))
+# 					for i in range(workers)]
+#		[worker.start() for worker in workers]
  		
  		# iterate over lines in samfile		
-		[line_queue.put(line) for line in samfile]
+#		[line_queue.put(line) for line in samfile]
  		
  		# let the worker processes know that there's no more lines
-		[line_queue.put(None) for i in range(args.threads)]		
+#		[line_queue.put(None) for i in range(args.threads)]		
  		
-		[worker.join() for worker in workers]	
+#		[worker.join() for worker in workers]	
  		
-		output_p.join()
+#		output_p.join()
 
 		# for processing serially
-#		with open(args.output, "w", newline = '') as outfile:
-#			output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-#										fieldnames = output_header)
-#			output_writer.writeheader()
-#			read_count = 0
-#			for line in samfile:
-#				if line[0] == '@':
-#					continue
-#				read_count += 1
-#				result = score_read(line, sim_info, analysis_info, args)
-#				update_scores(read_scores, result)
-#				for sim_match in result.keys():
-#					for analysis_match in result[sim_match]:
-#						output_writer.writerow(analysis_match)
-#	
-#	print(f"\nscored {read_count} reads, which were scored: ")
-#	pp = pprint.PrettyPrinter(indent = 2)
-#	pp.pprint(read_scores)
-#
-#	write_output_summary(outfile, read_scores, args)
+		with open(args.output, "w", newline = '') as outfile:
+			output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+										fieldnames = output_header)
+			output_writer.writeheader()
+			read_count = 0
+			for line in samfile:
+				if line[0] == '@':
+					continue
+				read_count += 1
+				result = score_read(line, sim_info, analysis_info, args, merged_reads)
+				update_scores(read_scores, result)
+				for sim_match in result.keys():
+					for analysis_match in result[sim_match]:
+						output_writer.writerow(analysis_match)
+	
+	print(f"\nscored {read_count} reads, which were scored: ")
+	pp = pprint.PrettyPrinter(indent = 2)
+	pp.pprint(read_scores)
+
+	write_output_summary(outfile, read_scores, args)
 
 	print(f"saved results to {args.output}")
 
-def process_lines(line_queue, result_queue, sim_info, analysis_info, args):
+def process_lines(line_queue, result_queue, sim_info, analysis_info, args, merged_reads):
 	"""
 	get samfile lines from queue, and write results to file
 	"""
@@ -162,7 +171,7 @@ def process_lines(line_queue, result_queue, sim_info, analysis_info, args):
 			continue
 		# process this line
 		else:
-			result = score_read(line, sim_info, analysis_info, args)
+			result = score_read(line, sim_info, analysis_info, args, merged_reads)
 			result_queue.put(result)
 
 def read_csv(filename):
@@ -180,7 +189,7 @@ def read_csv(filename):
 			
 	return data
 	
-def get_read_properties(line):
+def get_read_properties(line, merged_reads):
 	"""
 	get properties of read from line of sam file
 	"""
@@ -193,9 +202,15 @@ def get_read_properties(line):
 	else:
 		raise ValueError(f"read {read.qname} is neither read1 nor read2, but reads must be paired")
 	
+	if parts[0] in merged_reads:
+		merged = True
+	else:
+		merged = False
+	
 	return {
 		'qname' : parts[0],	
-		'num' : read_num
+		'num' : read_num,
+		'merged' : merged
 	}
 
 def write_output_summary(outfile, read_scores, args):
@@ -290,35 +305,50 @@ def update_scores(read_scores, result):
 				score = analysis_match[score_type]
 				read_scores[score_type][junc_type][score] += 1			
 		
-def score_read(line, sim_info, analysis_info, args):
+def score_read(line, sim_info, analysis_info, args, merged_reads):
 	# score read in terms of positive/negate and true/false
 	# simplest scoring is based on whether or not a read was found in the analysis results
 	# and whether or not it should have been found (based on simulation results)
 	
-	read = get_read_properties(line)
+	read = get_read_properties(line, merged_reads)
 
 	analysis_matches = {}
 
 	# find any simulated integrations involving this read
 	# there might be multiple integrations crossed by a read or pair
-	read_sim_matches = look_for_read_in_sim(read['qname'], read['num'], sim_info)
+	read_sim_matches = look_for_read_in_sim(read, sim_info)
 
 	# each read can be involved in one or more chimeric junctions, and at most one 
 	# discordant junctions.  if read is not involved in at least one chimeric and one
 	# discordant junction, add empty entries to read_sim_matches
-	if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
-		read_sim_matches['__discord'] = None
+	
+	# but if read was merged, it can't be discordant
+	if not read['merged']:
+		if not any([key.split('_')[2] == 'discord' for key in read_sim_matches.keys()]):
+			read_sim_matches['__discord'] = None
+	# if a read was merged, and indicated to be part of a discordant pair that crosses an integraion
+	# it should actually be in the results as a chimeric pair
+	else:
+		for key in read_sim_matches.keys():
+			int_info =  key.split('_')
+			# change discord to chimeric
+			if int_info[2] == 'discord':
+				int_info[2] = 'chimeric'
+				data = read_sim_matches.pop(key)
+				read_sim_matches["_".join(int_info)] = data
+		
+	# also look for chimieric read if there isn't one
 	if not any([key.split('_')[2] == 'chimeric' for key in read_sim_matches.keys()]):
-		read_sim_matches['__chimeric'] = None
+		read_sim_matches['__chimeric'] = None	
 
 	#  if read_sim_matches is not empty, it crosses at least one integration
 	# read is either true positive or false negative
-	assert len(read_sim_matches) >= 2
+	assert len(read_sim_matches) > 0
 	for int_id, sim_row in read_sim_matches.items():
 
 		# for each integration crossed by a read or pair, it could be in the results more than once
 		# as a pair (for one integration) and as a soft-clipped read (for another integration)
-		analysis_matches[int_id] = look_for_read_in_analysis(read['qname'], read['num'], int_id, sim_row, analysis_info, args)
+		analysis_matches[int_id] = look_for_read_in_analysis(read, int_id, sim_row, analysis_info, args)
 		
 	score_matches(analysis_matches, args)
 	
@@ -341,8 +371,9 @@ def score_matches(analysis_matches, args):
 	'virus_score' is the same as 'host_score' but for the location in the virus
 	"""
 	
+	score_types = ('found_score', 'host_score', 'virus_score')
+	
 	for match_type in analysis_matches.values():
-
 		for match in match_type:
 			# if read crosses an integration
 			if match['intID'] is not None:
@@ -363,19 +394,21 @@ def score_matches(analysis_matches, args):
 						match['virus_score'] = 'fp'
 					
 				else:
-					match['found_score'] = 'fn'
-					match['host_score'] = 'fn'
-					match['virus_score'] = 'fn'
+					for score_type in score_types:
+						match[score_type] = 'fn'
+			
 			# if read doesn't cross integration
 			else:
+				# doesn't cross but is found - false positive
 				if match['found'] is True:
-					match['found_score'] = 'fp'
-					match['host_score'] = 'fp'
-					match['virus_score'] = 'fp'
+						for score_type in score_types:
+							match[score_type] = 'fp'
+				# doesn't cross and isn't found - true netgative
 				else:
-					match['found_score'] = 'tn'
-					match['host_score'] = 'tn'
-					match['virus_score'] = 'tn'
+					for score_type in score_types:
+						match[score_type] = 'tn'
+					
+
 				
 	return analysis_matches
 
@@ -441,33 +474,53 @@ def correct_pos(match, args, ref):
 
 	return False	
 
-def look_for_read_in_sim(readID, read_num, sim_info):
+def look_for_read_in_sim(read, sim_info):
 	"""
 	given a read id, find any integrations which involved this read
+	if the read was merged during analysis, we want to include results for the other read if chimeric
+	
+	ie. the annotation of simulated reads script doesn't know if a read was merged or not
+	so it outputs names with either /1 or /2 appended.  but if the read was merged, 
+	we want to include both read 1 and 2 in the chimeric reads, even if only one of 
+	them was indicated to be chimeric before merging
 	"""
 	
 	sim_ints = {}
 	
+
 	# look through rows of sim info for matches
 	for sim_row in sim_info:
 		
 		# look in chimeric
-		if f"{readID}/{read_num}" in sim_row['left_chimeric'].split(";"):
-			sim_ints[f"{sim_row['id']}_left_chimeric"] = sim_row
+		if read['merged']:
+			
+			# if read was merged, we just want to look for either read 1 or 2 annotated as chimeric
+			for annotated_read in sim_row['left_chimeric'].split(";"):
+				if re.match(f"{read['qname']}/", annotated_read):
+					sim_ints[f"{sim_row['id']}_left_chimeric"] = sim_row
+					
+			for annotated_read in sim_row['right_chimeric'].split(";"):
+				if re.match(f"{read['qname']}/", annotated_read):
+					sim_ints[f"{sim_row['id']}_right_chimeric"] = sim_row
+				
+		else:
+			# if read wasn't merged, check for this specific read number
+			if f"{read['qname']}/{read['num']}" in sim_row['left_chimeric'].split(";"):
+				sim_ints[f"{sim_row['id']}_left_chimeric"] = sim_row
 		
-		if f"{readID}/{read_num}" in sim_row['right_chimeric'].split(";"):
-			sim_ints[f"{sim_row['id']}_right_chimeric"] = sim_row
+			if f"{read['qname']}/{read['num']}" in sim_row['right_chimeric'].split(";"):
+				sim_ints[f"{sim_row['id']}_right_chimeric"] = sim_row
 			
 		# look in discordant
-		if readID in sim_row['left_discord'].split(";"):
+		if read['qname'] in sim_row['left_discord'].split(";"):
 			sim_ints[f"{sim_row['id']}_left_discord"] = sim_row
 			
-		if readID in sim_row['right_discord'].split(";"):
+		if read['qname'] in sim_row['right_discord'].split(";"):
 			sim_ints[f"{sim_row['id']}_right_discord"] = sim_row
 			
 	return sim_ints
 
-def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_info, args):
+def look_for_read_in_analysis(read, int_descr, sim_row, analysis_info, args):
 	"""
 	Given a read id from a row in the simulation results, try to find a corresponding row
 	in the analysis results
@@ -475,9 +528,12 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 	Check whether read is on the same side (left or right) in analysis results and simulated info
 	as well as if type (discordant or chimeric) is the same
 	
-	TODO: incorporate info about whether or not it was at the correct location
+	If R1 and R2 are merged, a discordant pair can become a single chimeric read.  
 	
 	"""
+	
+	readID = read['qname']
+	
 	# get id side and type from int_descr
 	if int_descr is not None:
 		id, side, type = int_descr.split('_')
@@ -494,14 +550,17 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 	assert type in ['chimeric', 'discord', None]
 	
 	# if the type is chimeric, we're looking only for a read with the read number appended
+	# unless read was merged
 	if type == 'chimeric':
-		readID = f"{readID}/{read_num}"
-		
+		if not read['merged']:
+			readID = f"{readID}/{read['num']}"
+			
 	# does this read cross an integration?
 	cross_int = (sim_row is not None)
 	
 	# dictionary to store matches for this read
 	sim_matches = {'readID' : readID,
+					'merged': read['merged'],
 					'intID' : id,
 					'found' : False,
 					'n_found' : 0,
@@ -523,7 +582,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 	# look through rows of analysis for matches
 	for analysis_row in analysis_info:
 	
-		# check for  readID
+		# check for readID
 		if analysis_row['ReadID'] == readID:
 			
 			sim_matches['found'] = True
@@ -545,7 +604,7 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 				analysis_type = 'chimeric'
 			else:
 				raise ValueError(f'unknown OverlapType in analysis results for read {readID}')
-			sim_matches['correct_type'] = (analysis_type == type)
+			sim_matches['correct_type'] = (analysis_type == type)			
 			
 			#if this read crosses a simulated int, check for matches between sim and analysis properties
 			if cross_int:
@@ -608,6 +667,11 @@ def look_for_read_in_analysis(readID, read_num, int_descr, sim_row, analysis_inf
 		print(f"WARNING: read {readID} found more than once in analysis matches")
 		for match_dict in matches:
 			match_dict['n_found'] = len(matches)
+			
+	# discordant pairs that were merged are a special case
+	# if a discordant pair crossing an integration is merged, without correction
+	# it will be scored as fp for chimeric and fn for discordant, but it should
+	# actually be tp for chimeric and tn for discordant
 	
 	return matches
 	
