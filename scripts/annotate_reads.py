@@ -102,7 +102,6 @@ def find_multiple_chimeric_discordant(buffer):
 	as something that should be detected (but instead add them to the 'discordant_and_chimeric'
 	category)
 	"""	
-	
 	to_delete = {}
 	for i, row in enumerate(buffer):
 	
@@ -111,6 +110,7 @@ def find_multiple_chimeric_discordant(buffer):
 		left_discord = row['left_discord'].split(';')
 		right_discord =  row['right_discord'].split(';')
 		to_delete[i] = {'left' : [], 'right' : []}
+		
 		
 		# check for these reads in other rows
 		for row_2 in buffer:
@@ -169,7 +169,6 @@ def find_multiple_discordant(buffer):
 		these reads in a seperate category ('multiple_discord') for all the integrations that they cross,
 		to reflect the fact that the 'belong' to multiple integrations
 	"""
-	
 	# keep track of which reads we've already seen
 	seen = dict()
 	
@@ -288,6 +287,10 @@ def find_reads_crossing_ints(buffer, samfile, args, window_width):
 		# (but it shouldn't be both if the clipping threshold is the same for both read types)
 		left_chimeric, left_discord = remove_chimeric_from_discord(left_chimeric, left_discord)
 		right_chimeric, right_discord = remove_chimeric_from_discord(right_chimeric, right_discord)
+
+		left_chimeric, right_discord = remove_chimeric_from_discord(left_chimeric, right_discord)
+		right_chimeric, left_discord = remove_chimeric_from_discord(right_chimeric, left_discord)
+		
 			
 		row['left_discord'] = ";".join(left_discord)
 		row['right_discord'] = ";".join(right_discord)
@@ -664,9 +667,9 @@ def remove_chimeric_from_discord(chimeric, discord):
 	"""
 	# chimeric reads have /1 or /2 added
 	to_delete = []
-	chimeric = [read[:-2] for read in chimeric]
+	chimeric_tmp = [read[:-2] for read in chimeric]
 	for read in discord:
-		if read in chimeric:
+		if read in chimeric_tmp:
 			print(f"  removed a read that was in both chimeric and discord: {read}")
 			to_delete.append(read)
 	
