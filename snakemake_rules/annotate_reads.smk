@@ -16,7 +16,6 @@ rule annotate_reads:
 		mean_frag_len = lambda wildcards: format_parameter(wildcards, '--mean-frag-len', 'frag_len'),
 		sd_frag_len = lambda wildcards: format_parameter(wildcards, '--sd-frag-len', 'frag_std'),
 		window_frac = "--window-frac 0.99"
-		
 	shell:
 		"""
 		python3 scripts/annotate_reads.py \
