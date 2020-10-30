@@ -19,6 +19,7 @@ default_lambda_junction = [4]
 default_p_host_deletion = [0.2]
 default_lambda_host_deletion = [1000]
 default_min_sep = [500]
+default_min_len = [500]
 # read simulation parameters
 default_read_len = [150]
 default_fcov = [10]
@@ -72,6 +73,7 @@ def parse_config(config):
 
 		# integration parameters
 		config = standard_checks(config, exp, 'min_sep', default_min_sep, list, int) 
+		config = standard_checks(config, exp, 'min_len', default_min_len, list, int) 
 		config = standard_checks(config, exp, 'int_num', default_int_num, list, int) 
 		config = standard_checks(config, exp, 'epi_num', default_int_num, list, int) 
 		config = standard_checks(config, exp, 'p_whole', default_p_whole, list, (int, float)) 
@@ -135,6 +137,7 @@ def parse_config(config):
 				 'int_num',
 				 'epi_num',
 				 'min_sep',
+				 'min_len',
 				 'p_whole',
 				 'p_rearrange',
 				 'p_delete',
@@ -177,6 +180,7 @@ def parse_config(config):
 			config[exp]['int_num'],
 			config[exp]['epi_num'],
 			config[exp]['min_sep'],
+			config[exp]['min_len'],
 			config[exp]['p_whole'],
 			config[exp]['p_rearrange'],
 			config[exp]['p_delete'],

@@ -35,6 +35,7 @@ rule simulate_integrations:
 		int_num = lambda wildcards: format_parameter(wildcards, '--int_num', 'int_num'),
 		epi_num = lambda wildcards: format_parameter(wildcards, '--epi_num', 'epi_num'),
 		min_sep = lambda wildcards: format_parameter(wildcards, '--min-sep', 'min_sep'),
+		min_len = lambda wildcards: format_parameter(wildcards, '--min-len', 'min_len'),
 		p_whole = lambda wildcards: format_parameter(wildcards, '--p_whole', 'p_whole'),
 		p_rearrange = lambda wildcards: format_parameter(wildcards, '--p_rearrange', 'p_rearrange'),
 		p_delete = lambda wildcards: format_parameter(wildcards, '--p_delete', 'p_delete'),

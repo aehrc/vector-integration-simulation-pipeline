@@ -23,18 +23,18 @@
 # reports all integration sites relative to the host genome, independent of other integrations
 # intergrations are stored internally though the Integration class
 
-
-
 ###import libraries
 from Bio import SeqIO
 from Bio.Alphabet.IUPAC import unambiguous_dna
 from Bio.Seq import Seq 
 from Bio.SeqRecord import SeqRecord
+from scipy.stats import poisson
 import pandas as pd
 import argparse
 from sys import argv
 from os import path
 import numpy as np
+import scipy
 import pdb 
 import csv
 import re
@@ -56,13 +56,13 @@ default_p_gap = 0.3
 default_lambda_junction = 3
 default_p_host_del = 0.0
 default_lambda_host_del = 1000
+default_min_sep = 500
 
 search_length_overlap = 10000 # number of bases to search either side of randomly generated position for making overlaps
 
+lambda_junc_percentile = 0.99
+
 fasta_extensions = [".fa", ".fna", ".fasta"]
-
-default_min_sep = 500 
-
 
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -89,6 +89,8 @@ def main(argv):
 	parser.add_argument('--verbose', help = 'display extra output for debugging', action="store_true")
 	parser.add_argument('--model-check', help = 'check integration model every new integration', action="store_true")
 	parser.add_argument('--min-sep', help='minimum separation for integrations', type=int, default=default_min_sep)
+	parser.add_argument('--min-len', help='minimum length of integrated viral fragments', type=int, default=None)
+
 	args = parser.parse_args()
 	
 	#### generate integrations ####		
@@ -107,10 +109,12 @@ def main(argv):
 	# initialise Events
 	if args.verbose is True:
 		print("initialising a new Events object")
-	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True)
+
+	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True, min_len = args.min_len)
 	
 	# add integrations
-	seqs.add_integrations(probs, args.int_num, max_attempts, model_check = args.model_check, min_sep = args.min_sep)
+	seqs.add_integrations(probs, args.int_num, max_attempts, 
+												model_check = args.model_check, min_sep = args.min_sep)
 	seqs.add_episomes(probs, args.epi_num, max_attempts)
 	
 	
@@ -128,7 +132,9 @@ class Events(dict):
 	are episomal (present in sequence data but not integrated into the host chromosomes)
 	"""
 	
-	def __init__(self, host_fasta_path, virus_fasta_path, fasta_extensions = ['.fa', '.fna', '.fasta'], seed = 12345, verbose = False):
+	def __init__(self, host_fasta_path, virus_fasta_path, 
+								fasta_extensions = ['.fa', '.fna', '.fasta'], 
+								seed = 12345, verbose = False, min_len = None):
 		"""
 		initialise events class by importing a host and viral fasta, and setting up the random number generator
 		"""
@@ -137,8 +143,12 @@ class Events(dict):
 		assert isinstance(fasta_extensions, list)
 		assert isinstance(seed, int)
 		assert isinstance(verbose, bool)
+		assert isinstance(min_len, int) or min_len is None
+		if min_len is not None:
+			assert min_len > 0
 		
 		self.verbose = verbose
+		self.min_len = min_len
 		
 		# check and import fasta files
 		if self.verbose is True:
@@ -164,6 +174,14 @@ class Events(dict):
 				this_virus.seq = this_virus.seq.upper()
 		else:
 			raise OSError("Could not open virus fasta")
+			
+		# check that minimum length is greater than the length of all the viral references
+		if self.min_len is not None:
+			if not all([len(virus) >= self.min_len for virus in self.virus.values()]):
+				raise ValueError(f"specified minimum length is more than the length of one of the input viruses")
+			if any([len(virus) == self.min_len for virus in self.virus.values()]):
+				print(f"warning: minimum length is equal to the length of one or more references - integrations involving these references will all be whole, regardless of p_whole")
+
 
 		if self.verbose is True:
 			print(f"imported virus fasta with {len(self.virus)} sequences:", flush=True)
@@ -201,8 +219,13 @@ class Events(dict):
 		if self.min_sep * 4 * int_num > total_host_length:
 			raise ValueError("The requested number of integrations, with the specified minimum separation, are not likely to fit into the specified host.  Either decrease the number of integrations or the minimum separation.")
 			
+		# we require that the minimum length of integrations is longer than the integrated virus
+		# so check the value of lambda_junction relative to min_len and the length of the shortest viral reference
+		# require that both are greater than the 99th percentile of the poisson distribution defined by lambda_junction
+		self.check_junction_length(probs)
+			
 		# instantiate Integrations object
-		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep)
+		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep, self.min_len)
 		
 		# add int_num integrations
 		if self.verbose is True:
@@ -237,8 +260,13 @@ class Events(dict):
 		if 'epis' in self:
 			raise ValueError("episomes have already been added to this Events object")
 			
+		# we require that the minimum length of integrations is longer than the integrated virus
+		# so check the value of lambda_junction relative to min_len and the length of the shortest viral reference
+		# require that both are greater than the 99th percentile of the poisson distribution defined by lambda_junction
+		self.check_junction_length(probs)
+			
 		# instantiate Episomes object
-		self.epis = Episomes(self.virus, self.rng, probs, max_attempts)
+		self.epis = Episomes(self.virus, self.rng, probs, max_attempts, self.min_len)
 		
 		# add epi_num episomes
 		if self.verbose is True:
@@ -262,6 +290,26 @@ class Events(dict):
 			if not prefix in fasta_extensions:
 				return False
 		return True		
+		
+	def check_junction_length(self, probs):
+		"""
+		we require that the minimum length of integrations is longer than the integrated virus
+		so check the value of lambda_junction relative to min_len and the length of the shortest viral reference
+		require that both are greater than the 99th percentile of the poisson distribution defined by lambda_junction
+		"""
+
+		thresh = poisson.ppf(lambda_junc_percentile, probs['lambda_junction'])
+		if self.min_len is not None:
+			if thresh * 2  > self.min_len:
+				raise ValueError(
+					"There is likely to be a lot of clashes in which the length of the left and right junctions, and the \
+					length of the integrations.  Set a shorter lambda_jucntion or a longer minimum length"
+					)
+		if thresh * 2  > min([len(virus) for virus in  self.virus.values()]):
+			raise ValueError(
+				"There is likely to be a lot of clashes in which the length of the left and right junctions, and the \
+				length of the integrations.  Set a shorter lambda_jucntion or use longer viral references."
+				)
 		
 	def save_fasta(self, file):
 		"""
@@ -332,9 +380,9 @@ class Integrations(list):
 	
 	p_host_del - probability that there will be a deletion from the host at integration site
 	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
-	
+
 	"""
-	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1):
+	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1, min_len=None):
 		"""
 		Function 
 		to initialise Integrations object
@@ -348,6 +396,9 @@ class Integrations(list):
 		assert isinstance(model_check, bool)
 		assert isinstance(min_sep, int)
 		assert min_sep > 0
+		assert isinstance(min_len, int) or min_len is None
+		if min_len is not None:
+			assert min_len > 0
 		
 		# assign properties common to all integrations
 		self.host = host
@@ -357,6 +408,7 @@ class Integrations(list):
 		self.max_attempts = max_attempts
 		self.model_check = model_check
 		self.min_sep = min_sep
+		self.min_len = min_len
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -461,7 +513,7 @@ class Integrations(list):
 			counter += 1
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set chunk properties")
-		assert len(chunk_props) == 4
+		assert len(chunk_props) == 5
 			
 		counter = 0
 		while True:
@@ -577,6 +629,8 @@ class Integrations(list):
 			- n_fragments: number of fragments into which ViralChunk should be split
 			- n_delete: number of fragments to delete from ViralChunk (should always leave at least two fragments after deletion)
 			- n_swaps: number of swaps to make when rearranging ViralChunk
+			- min_len: the minimum length of the viral chunk - optional (if not present, for integration will be set to
+							the number of overlap bases + 1, for episome will be set to 1
 		"""
 		
 		chunk_props = {}
@@ -624,6 +678,9 @@ class Integrations(list):
 				return {}
 		else:
 			chunk_props['n_swaps'] = 0
+			
+		# set minimum length of chunk
+		chunk_props['min_len'] = self.min_len
 			
 		return chunk_props
 		
@@ -921,8 +978,7 @@ class Episomes(Integrations):
 	Since Integrations and Episomes use some similar methods, this class inherits from Integrations
 	in order to avoid duplication
 	"""
-	
-	def __init__(self, virus, rng, probs, max_attempts = 50, ):
+	def __init__(self, virus, rng, probs, max_attempts = 50, min_len = None):
 		"""
 		initialises an empty Episomes list, storing the properties common to all episomes
 		"""
@@ -930,12 +986,19 @@ class Episomes(Integrations):
 		assert isinstance(virus, dict)
 		assert isinstance(probs, dict)
 		assert isinstance(max_attempts, int)
+		assert isinstance(min_len, int) or min_len is None
+		if min_len is None:
+			min_len = 1
+		else:
+			assert min_len > 0
+		
 	
 		# assign properties common to all episomes
 		self.virus = virus
 		self.probs = probs
 		self.rng = rng
 		self.max_attempts = max_attempts
+		self.min_len = min_len
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -961,7 +1024,6 @@ class Episomes(Integrations):
 		"""
 		get a viral chunk and add to self
 		"""
-		
 		
 		# call functions that randomly set properties of this integrations
 		chunk_props = self.set_chunk_properties()
@@ -1100,7 +1162,6 @@ class Integration(dict):
 		
 		after assigning a 
 		"""
-		
 		# assign chunk_props and junc_props to self
 		self.chunk_props = chunk_props
 		self.junc_props = junc_props
@@ -1150,7 +1211,7 @@ class Integration(dict):
 		self.chr = str(rng.choice(list(host.keys())))
 		
 		# set minimum length for viral chunk - longer than the number of bases involved in the junction
-		if 'min_len' not in self.chunk_props:
+		if self.chunk_props['min_len'] is None:
 			self.chunk_props['min_len'] = self.n_overlap_bases() + 1
 		if self.chunk_props['min_len'] < self.n_overlap_bases() + 1:
 			self.chunk_props['min_len'] = self.n_overlap_bases() + 1
@@ -1586,7 +1647,7 @@ class ViralChunk(dict):
 	Class to store properties of an integrated chunk of virus.  
 	Intended to be used by the Integrations and Episomes classes
 	"""
-	
+
 	def __init__(self, virus,  rng, chunk_props):
 		"""
 		function to get a chunk of a virus
@@ -1610,7 +1671,7 @@ class ViralChunk(dict):
 		assert len(virus) > 0
 
 		assert isinstance(chunk_props, dict)
-		assert len(chunk_props) > 3 and len(chunk_props) < 6
+		assert len(chunk_props) == 5
 		
 		assert 'is_whole' in chunk_props
 		assert isinstance(chunk_props['is_whole'], bool)
@@ -1627,12 +1688,11 @@ class ViralChunk(dict):
 		assert isinstance(chunk_props['n_delete'], int)
 		assert chunk_props['n_delete'] >= 0
 		
-		if len(chunk_props) == 5:
-			assert 'min_len' in chunk_props
-			assert isinstance(chunk_props['min_len'], int)
-			assert chunk_props['min_len'] > 0
-		else:
+		assert 'min_len' in chunk_props
+		assert isinstance(chunk_props['min_len'], int) or chunk_props['min_len'] is None
+		if chunk_props['min_len'] is None:
 			chunk_props['min_len'] = 1
+		assert chunk_props['min_len'] > 0
 		
 		# check that the minimum length specified is longer than all the viruses
 		# otherwise we might fail
@@ -1642,6 +1702,10 @@ class ViralChunk(dict):
 		# get a random virus to integrate
 		self.virus = str(rng.choice(list(virus.keys())))
 		self.chunk_props = chunk_props
+		
+		# if the length of the virus is equal to min_len, is_whole must be true
+		if len(virus[self.virus]) == chunk_props['min_len']:
+			chunk_props['is_whole'] = True
 		
 		if self.chunk_props['is_whole'] is True:
 			self.start = 0
