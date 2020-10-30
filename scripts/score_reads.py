@@ -63,11 +63,11 @@ def main(argv):
 	sim_info = read_csv(args.sim_info)
 	
 	# read merged reads into memory
-	merged_reads = []
+	merged_reads = set()
 	if args.merged_reads is not None:
 		with open(args.merged_reads) as handle:
 			for line in handle:
-				merged_reads.append(line.strip())
+				merged_reads.add(line.strip())
 
 	print(f"opening analysis information: {args.analysis_info}")
 	if args.polyidus is True:
@@ -99,58 +99,62 @@ def main(argv):
 					'host_start_dist', 'host_stop_dist', 'host_coords_overlap', 'correct_virus', 'virus_coords_overlap', 'virus_start_dist',
 					'virus_stop_dist', 'ambig_diff']
 	
-		# create queues
-#		line_queue = mp.Queue()
-#		result_queue = mp.Queue()
+		if args.threads > 1 or args.threads is None:	
+			# create queues
+			line_queue = mp.Queue()
+			result_queue = mp.Queue()
  		
- 		# create pool of workers
-#		if args.threads is None:
-#			args.threads = cpu_count()
-#		workers = args.threads - 1
-#		if workers < 1:
-#			workers = 1
+ 			# create pool of workers
+			if args.threads is None:
+				args.threads = cpu_count()
+			workers = args.threads - 1
+			if workers < 1:
+				workers = 1
  			
- 		# create output process
-#		print(f"using {workers} workers")
-#		output_p = mp.Process(target = write_results, args = (output_header, result_queue, read_scores, workers, args))
-#		output_p.start()
+ 			# create output process
+			print(f"using {workers} workers")
+			output_p = mp.Process(target = write_results, args = (output_header, result_queue, 
+																														read_scores, workers, args)
+														)
+			output_p.start()
  		
-#		workers = [mp.Process(target = process_lines, 
-# 					args =  (line_queue, result_queue, sim_info, analysis_info, args, merged_reads))
-# 					for i in range(workers)]
-#		[worker.start() for worker in workers]
+			workers = [mp.Process(target = process_lines, 
+ 						args =  (line_queue, result_queue, sim_info, analysis_info, args, merged_reads))
+ 						for i in range(workers)]
+			[worker.start() for worker in workers]
  		
- 		# iterate over lines in samfile		
-#		[line_queue.put(line) for line in samfile]
+ 			# iterate over lines in samfile		
+			[line_queue.put(line) for line in samfile]
  		
- 		# let the worker processes know that there's no more lines
-#		[line_queue.put(None) for i in range(args.threads)]		
+ 			# let the worker processes know that there's no more lines
+			[line_queue.put(None) for i in range(args.threads)]		
  		
-#		[worker.join() for worker in workers]	
+			[worker.join() for worker in workers]	
  		
-#		output_p.join()
-
-		# for processing serially
-		with open(args.output, "w", newline = '') as outfile:
-			output_writer = csv.DictWriter(outfile, delimiter = '\t', 
-										fieldnames = output_header)
-			output_writer.writeheader()
-			read_count = 0
-			for line in samfile:
-				if line[0] == '@':
-					continue
-				read_count += 1
-				result = score_read(line, sim_info, analysis_info, args, merged_reads)
-				update_scores(read_scores, result)
-				for sim_match in result.keys():
-					for analysis_match in result[sim_match]:
-						output_writer.writerow(analysis_match)
+			output_p.join()
+		else:
+			print("processing with 1 worker")
+			# for processing serially
+			with open(args.output, "w", newline = '') as outfile:
+				output_writer = csv.DictWriter(outfile, delimiter = '\t', 
+																				fieldnames = output_header)
+				output_writer.writeheader()
+				read_count = 0
+				for line in samfile:
+					if line[0] == '@':
+						continue
+					read_count += 1
+					result = score_read(line, sim_info, analysis_info, args, merged_reads)
+					update_scores(read_scores, result)
+					for sim_match in result.keys():
+						for analysis_match in result[sim_match]:
+							output_writer.writerow(analysis_match)
 	
-	print(f"\nscored {read_count} reads, which were scored: ")
-	pp = pprint.PrettyPrinter(indent = 2)
-	pp.pprint(read_scores)
+			print(f"\nscored {read_count} reads, which were scored: ")
+			pp = pprint.PrettyPrinter(indent = 2)
+			pp.pprint(read_scores)
 
-	write_output_summary(outfile, read_scores, args)
+			write_output_summary(outfile, read_scores, args)
 
 	print(f"saved results to {args.output}")
 
@@ -812,10 +816,6 @@ def read_polyidus_csv(filename):
 			row_data['VirusRef'] = row['ChromVirus']
 			row_data['OverlapType'] =  'none'
 			row_data['Type'] = 'chimeric'
-			
-			## TODO - each row combines muliple reads, each with a position in the host and virus, and a strand
-			# but the number of readnames doesn't match the number of other attributes, so it's unclear
-			# how to join up the read names with the other attributes.
 			
 			hPosition = int(row['IntegrationSite'])
 			vPosition = int(row['ViralIntegrationSite'])
