@@ -88,8 +88,8 @@ def parse_config(config):
 
 		# art parameters
 		config = standard_checks(config, exp, 'read_len', default_read_len, list, int) 
-		config = standard_checks(config, exp, 'fcov', default_fcov, list, int) 
-		config = standard_checks(config, exp, 'frag_len', default_frag_len, list, int) 
+		config = standard_checks(config, exp, 'fcov', default_fcov, list, (int, float))
+		config = standard_checks(config, exp, 'frag_len', default_frag_len, list, (int, float)) 
 		config = standard_checks(config, exp, 'frag_std', default_frag_std, list, (int, float)) 
 		config = standard_checks(config, exp, 'seq_sys', default_seq_sys, list, str) 
 
