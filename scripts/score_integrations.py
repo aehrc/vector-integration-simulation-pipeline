@@ -110,6 +110,7 @@ def main(argv):
 			  'found_info' : args.found_info,
 			  'analysis_tool' : args.analysis_tool,
 			  'window'		  : args.window,
+			  'merged-ints' : args.merged,
 			  'tp':0, 'fp':0, 'tn':0, 'fn':0 }
 	# check scored_sim_results (which has one entry for each simulated integration) 
 	# for true positives and false negatives
@@ -186,7 +187,7 @@ def main(argv):
 		# create dictwrite object for summary
 		output_writer = csv.DictWriter(outfile, delimiter = '\t',
 										fieldnames = ('sim_info', 'found_info',
-													   'analysis_tool', 'window',
+													   'analysis_tool', 'window', 'merged-ints',
 													   'tp', 'tn', 'fp', 'fn'))
 		output_writer.writeheader()
 		output_writer.writerow(scores)
