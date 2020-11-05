@@ -5,9 +5,11 @@ rule art:
 	input:
 		sim_fasta = rules.simulate_integrations.output.sim_fasta,
 	output:
-		sam = "{outpath}/{exp}/sim_reads/{samp}.sam",
-		r1 = "{outpath}/{exp}/sim_reads/{samp}1.fq",
-		r2 = "{outpath}/{exp}/sim_reads/{samp}2.fq",
+		sam = temp("{outpath}/{exp}/sim_reads/{samp}.sam"),
+		r1 = temp("{outpath}/{exp}/sim_reads/{samp}1.fq"),
+		r2 = temp("{outpath}/{exp}/sim_reads/{samp}2.fq"),
+		aln1 = temp("{outpath}/{exp}/sim_reads/{samp}1.aln"),
+		aln2 = temp("{outpath}/{exp}/sim_reads/{samp}2.aln"),
 	params:
 		seq_sys = lambda wildcards: format_parameter(wildcards, '-ss', 'seq_sys'),
 		read_len = lambda wildcards: format_parameter(wildcards, '-l', 'read_len'),

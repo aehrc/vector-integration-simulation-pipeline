@@ -20,8 +20,8 @@ rule simulate_integrations:
 		host = lambda wildcards: get_parameter(wildcards, 'host_fasta'),
 		virus =  lambda wildcards:  get_parameter(wildcards, 'virus_fasta')
 	output:
-		sim_fasta = "{outpath}/{exp}/sim_ints/{samp}.fa",
-		sim_info = "{outpath}/{exp}/sim_ints/{samp}.int-info.tsv",
+		sim_fasta = temp("{outpath}/{exp}/sim_ints/{samp}.fa"),
+		sim_info = temp("{outpath}/{exp}/sim_ints/{samp}.int-info.tsv"),
 		epi_info = "{outpath}/{exp}/sim_ints/{samp}.epi-info.tsv",
 	conda:
 		"../envs/simvi.yml"
