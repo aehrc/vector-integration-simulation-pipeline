@@ -11,7 +11,7 @@ import csv
 import pdb
 
 # currently supported tools
-supported_tools = ('pipeline', 'vifi', 'polyidus')
+supported_tools = ('pipeline', 'vifi', 'polyidus', 'verse')
 
 def main(argv):
 	#get arguments
@@ -34,6 +34,8 @@ def main(argv):
 			found = parse_polyidus(args.found_info)
 		elif args.analysis_tool == "vifi":
 			found = parse_vifi(args.found_info)
+		elif args.analysis_tool == "verse":
+			found = parse_verse(args.found_info)
 	else:
 		if args.analysis_tool == "pipeline":
 			found = parse_merged_bed(args.found_info)
@@ -41,6 +43,9 @@ def main(argv):
 			found = parse_polyidus_merged(args.found_info)
 		elif args.analysis_tool == "vifi":
 			found = parse_vifi_merged(args.found_info)	
+		elif args.analysis_tool == "verse":
+			found = parse_verse(args.found_info)
+	pdb.set_trace()
 		
 	# import infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
@@ -481,6 +486,39 @@ def parse_vifi_merged(path):
 					
 	return data	
 
+def parse_verse(path):
+	"""
+	parse verse output file (integration-sites.txt), and produce a data structure 
+	similar to parse_merged_bed
 	
+	assign unique id to each integration, which consists of row number in output file
+	"""
+	with open(path, newline = '') as found:
+		
+		# if file is empty
+		if found.readline() == "":
+			return []
+		
+		found.seek(0)
+		found_reader = csv.DictReader(found, delimiter = '\t')
+		data = []
+		
+		# get info from rows
+		row_num = 0
+		for row in found_reader:
+			
+			result = {
+				'Chr' 		  : row['Chromosome 1'] if row['Chromosome 2'] == 'chrVirus' else row['Chromosome 2'],
+				'IntStart' 	  : row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2'],
+				'IntStop' 	  : row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2'],
+				'Orientation' : 'unknown',
+				'ReadID'      : '',
+				'id'		  : row_num
+				}
+			data.append(result)
+			row_num += 1
+			
+	return data	
+
 if __name__ == "__main__":
 	main(argv[1:])
