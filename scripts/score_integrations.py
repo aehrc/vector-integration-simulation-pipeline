@@ -45,7 +45,6 @@ def main(argv):
 			found = parse_vifi_merged(args.found_info)	
 		elif args.analysis_tool == "verse":
 			found = parse_verse(args.found_info)
-	pdb.set_trace()
 		
 	# import infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
