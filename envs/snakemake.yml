@@ -5,11 +5,5 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - conda=4.8.3
-  - mamba=0.3.7
-  - numpy=1.17
-  - pandas=1.0.4
-  - python=3.6
-  - snakemake=5.20
-  - yaml=0.1.7
+  - snakemake=5.27
 
