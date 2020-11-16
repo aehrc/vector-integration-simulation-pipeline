@@ -1,3 +1,8 @@
+def return_lower(expr1, expr2):
+	if expr1 <= expr2:
+		return expr1
+	return expr2
+
 
 rule write_summary:
 	input:
@@ -28,7 +33,7 @@ rule simulate_integrations:
 	container:
 		"docker://szsctt/simvi:2"
 	resources:
-		mem_mb= lambda wildcards, attempt, input: attempt * ( 5 * int((path.getsize(input.host)/1000000)) + int(get_parameter(wildcards, 'int_num')) * 50 + int(get_parameter(wildcards, 'epi_num')) * 10),
+		mem_mb= lambda wildcards, attempt, input: return_lower(attempt * ( 5 * int((path.getsize(input.host)/1000000)) + int(get_parameter(wildcards, 'int_num')) * 50 + int(get_parameter(wildcards, 'epi_num')) * 10), 3000000),
 		time = lambda wildcards, attempt: ('2:00:00', '24:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
 		nodes = 1
 	params:
