@@ -47,7 +47,8 @@ def main(argv):
 			found = parse_vifi_merged(args.found_info)	
 		elif args.analysis_tool == "verse":
 			found = parse_verse(args.found_info)
-		
+		elif args.analysis_tool == "seeksv":
+			found = parse_seeksv_merged_bed(args.found_info)	
 	# import infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
 	
@@ -388,6 +389,34 @@ def parse_merged_bed(path):
 			
 	return data
 	
+def parse_seeksv_merged_bed(path):
+	"""
+	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
+	
+	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
+	"""
+	with open(path, newline = '') as found:
+		found_reader = csv.reader(found, delimiter = '\t')
+		data = []
+		
+		# get info from rows
+		row_num = 0
+		for row in found_reader:
+
+				# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
+			info = {'Chr' 			: row[0],
+							'IntStart' 		: int(row[1]),
+							'IntStop' 		: int(row[2]),
+							'Orientation'	: 'unknown',
+							'ReadID'     	: '',
+							'id'			: row_num
+								}
+
+			data.append(info)
+			row_num += 1
+			
+	return data
+	
 def parse_polyidus_merged(path):
 	"""
 	parse polyidus output file (exactHpvIntegrations.tsv), and produce a data structure 
@@ -528,7 +557,6 @@ def parse_seeksv(path):
 	
 	assign unique id to each integration, which consists of row number in output file
 	"""
-	pdb.set_trace()
 	with open(path, newline = '') as found:
 		
 		# if file is empty
@@ -546,7 +574,7 @@ def parse_seeksv(path):
 			result = {
 				'Chr' 		  : row['@left_chr'] if 'chr' in row['@left_chr'] else row['right_chr'] ,
 				'IntStart' 	  : row['left_pos'] if 'chr' in row['@left_chr'] else row['right_pos'],
-				'IntStop' 	  : row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2'],
+				'IntStop' 	  : row['left_pos'] if 'chr' in row['@left_chr'] else row['right_pos'],
 				'Orientation' : 'unknown',
 				'ReadID'      : '',
 				'id'		  : row_num
