@@ -11,7 +11,7 @@ import csv
 import pdb
 
 # currently supported tools
-supported_tools = ('pipeline', 'vifi', 'polyidus', 'verse')
+supported_tools = ('pipeline', 'vifi', 'polyidus', 'verse', 'seeksv')
 
 def main(argv):
 	#get arguments
@@ -36,6 +36,8 @@ def main(argv):
 			found = parse_vifi(args.found_info)
 		elif args.analysis_tool == "verse":
 			found = parse_verse(args.found_info)
+		elif args.analysis_tool == "seeksv":
+			found = parse_seeksv(args.found_info)
 	else:
 		if args.analysis_tool == "pipeline":
 			found = parse_merged_bed(args.found_info)
@@ -518,6 +520,42 @@ def parse_verse(path):
 			row_num += 1
 			
 	return data	
+
+def parse_seeksv(path):
+	"""
+	parse seeksv output file, and produce a data structure 
+	similar to parse_results_tsv
+	
+	assign unique id to each integration, which consists of row number in output file
+	"""
+	pdb.set_trace()
+	with open(path, newline = '') as found:
+		
+		# if file is empty
+		if found.readline() == "":
+			return []
+		
+		found.seek(0)
+		found_reader = csv.DictReader(found, delimiter = '\t')
+		data = []
+		
+		# get info from rows
+		row_num = 0
+		for row in found_reader:
+			
+			result = {
+				'Chr' 		  : row['@left_chr'] if 'chr' in row['@left_chr'] else row['right_chr'] ,
+				'IntStart' 	  : row['left_pos'] if 'chr' in row['@left_chr'] else row['right_pos'],
+				'IntStop' 	  : row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2'],
+				'Orientation' : 'unknown',
+				'ReadID'      : '',
+				'id'		  : row_num
+				}
+			data.append(result)
+			row_num += 1
+			
+	return data	
+
 
 if __name__ == "__main__":
 	main(argv[1:])
