@@ -15,7 +15,7 @@ For each dataset, the reads can be found in the output directory under `sim_read
 
 ## Dependencies
 
-Execution requires `snakemake` and either `singularity` (recommended) or `conda` (envs may be out of date) to supply other dependencies.
+Execution requires `snakemake` and either `singularity` (recommended) or `conda` (envs may be out of date) to supply other dependencies.  If running with the `--use-singularity` flag, you may need to bind-mount the directories containing data and ouputs via the `--singularity-args` flag (eg `--singularity-args '-B /path/to/data -B /path/to/output'`).
 
 ## Test script
 
