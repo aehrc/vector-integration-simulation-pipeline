@@ -9,8 +9,8 @@ rule annotate_reads:
 	container:
 		"docker://szsctt/simvi:2"
 	resources:
-		mem_mb= lambda wildcards, attempt: attempt * 10000,
-		time = lambda wildcards, attempt: ('2:00:00', '24:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
+		mem_mb= lambda wildcards, attempt: attempt * 5000,
+		time = lambda wildcards, attempt: ('30:00', '2:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
 		nodes = 1
 	params:
 		mean_frag_len = lambda wildcards: format_parameter(wildcards, '--mean-frag-len', 'frag_len'),
