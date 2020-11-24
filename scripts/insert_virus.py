@@ -42,7 +42,7 @@ import pprint
 import time
 
 ###
-max_attempts = 200 #maximum number of times to try to place an integration site 
+max_attempts = 200000 #maximum number of times to try to place an integration site 
 
 default_ints = 5
 default_epi = 0
