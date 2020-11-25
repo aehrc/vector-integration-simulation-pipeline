@@ -22,34 +22,23 @@ def main(argv):
 	parser.add_argument('--output', help='output file', required=False, default='results.tsv')
 	parser.add_argument('--summary', help='output summary file', required=False, default='summary.tsv')	
 	parser.add_argument('--analysis-tool', choices=supported_tools, required=True)
-	parser.add_argument('--merged', action='store_true', help='Are we scoring merged integation sites (within host genome) or individual reads?')
 	
 	args = parser.parse_args()
 	
-	# import information about which integrations were found
-	if args.merged is False:
-		if args.analysis_tool == "pipeline":
-			found = parse_results_tsv(args.found_info)
-		elif args.analysis_tool == "polyidus":
-			found = parse_polyidus(args.found_info)
-		elif args.analysis_tool == "vifi":
-			found = parse_vifi(args.found_info)
-		elif args.analysis_tool == "verse":
-			found = parse_verse(args.found_info)
-		elif args.analysis_tool == "seeksv":
-			found = parse_seeksv(args.found_info)
-	else:
-		if args.analysis_tool == "pipeline":
-			found = parse_merged_bed(args.found_info)
-		elif args.analysis_tool == "polyidus":
-			found = parse_polyidus_merged(args.found_info)
-		elif args.analysis_tool == "vifi":
-			found = parse_vifi_merged(args.found_info)	
-		elif args.analysis_tool == "verse":
-			found = parse_verse(args.found_info)
-		elif args.analysis_tool == "seeksv":
-			found = parse_seeksv_merged_bed(args.found_info)	
-	# import infomration about simulated integrations
+	# read in information about which integrations were found
+	if args.analysis_tool == "pipeline":
+		found = parse_results_tsv(args.found_info)
+	elif args.analysis_tool == "polyidus":
+		found = parse_polyidus(args.found_info)
+	elif args.analysis_tool == "vifi":
+		found = parse_vifi(args.found_info)
+	elif args.analysis_tool == "verse":
+		found = parse_verse(args.found_info)
+	elif args.analysis_tool == "seeksv":
+		found = parse_seeksv(args.found_info)
+	
+	
+	# read in infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
 	
 	# remove any simulated integrations that don't have any supporting reads
@@ -67,15 +56,11 @@ def main(argv):
 		
 		# to store the results that we find for each simulated integration
 		sim_results = {'id' : sim_int['id'],
-						'chr': sim_int['chr'],
-						'pos': sim_int['hPos'],
-						'hv_count' : 0,
-						'vh_count' : 0,
-						'total_count': 0,
-						'hv_reads' : [],
-						'vh_reads' : [],
-						'total_reads': []
-						}
+										'chr': sim_int['chr'],
+										'pos': sim_int['hPos'],
+										'read_count': 0,
+										'reads': []
+									}
 						
 		# get coordinates in host in which to look for found integrations
 		sim_start = int(sim_int['hPos']) - args.window
@@ -91,15 +76,12 @@ def main(argv):
 			# check for overlap
 			found_start = int(result['IntStart'])
 			found_stop = int(result['IntStop'])
+			
 			if overlap(found_start, found_stop, sim_start, sim_stop):
 				
 				# increment counters
-				if result['Orientation'] != "unknown":
-					side = result['Orientation']
-					sim_results[f"{side}_count"] += 1
-					sim_results[f"{side}_reads"].append(result['ReadID'])
-				sim_results['total_count'] += 1
-				sim_results['total_reads'].append(result['ReadID'])
+				sim_results['read_count'] += len(result['ReadID']) if len(result['ReadID']) > 0 else 1
+				sim_results['reads'] += result['ReadID']
 				
 				# mark this integration in found
 				if 'found' not in result:
@@ -107,86 +89,63 @@ def main(argv):
 				else:
 					result['found'] += 1
 		
-		# collapse lists
-		for field in ('hv_reads', 'vh_reads', 'total_reads'):
-			sim_results[field] = ";".join(sim_results[field])
-		
+		# add to scored
 		scored_sim_results.append(sim_results)
-	
-	scores = {'sim_info'      : args.sim_info,
-			  'found_info' : args.found_info,
-			  'analysis_tool' : args.analysis_tool,
-			  'window'		  : args.window,
-			  'merged-ints' : args.merged,
-			  'tp':0, 'fp':0, 'tn':0, 'fn':0 }
+
 	# check scored_sim_results (which has one entry for each simulated integration) 
-	# for true positives and false negatives
+	# for true positives and false negatives	
+	scores = {'sim_info'      : args.sim_info,
+			  		'found_info' : args.found_info,
+			  		'analysis_tool' : args.analysis_tool,
+			  		'window'		  : args.window,
+			  		'tp':0, 'fp':0, 'tn':0, 'fn':0 }
+
 	for result in scored_sim_results:
 		# integrations that we saw, and expected to see
-		if result['total_count'] > 0:
+		if result['read_count'] > 0:
 			scores['tp'] += 1
 			result['score'] = 'tp'
 		# integrations that we didn't
 		else:
 			scores['fn'] += 1
 			result['score'] = 'fn'
-	# check found for integrations that we saw but didn't expect to
-	fps = {}
-	for result in found:
 	
+	
+	# check found for integrations that we saw but didn't expect to
+	for result in found:
+
 		# if this result wasn't in the sim integrations
 		if 'found' not in result:
 		
 			# if this is the first read we've seen from this integration
-			id = result['id']
-			if result['id'] not in fps:
-				scores['fp'] += 1
+			scores['fp'] += 1
 				
-				# we want to output this information - collect these reads together
-				fps[id] = {
-					'id': id,
-					'score': 'fp',
-					'chr': result['Chr'],
-					'pos': f"{result['IntStart']}/{result['IntStop']}",
-					'hv_count' : 0,
-					'vh_count' : 0,
-					'total_count': 1,
-					'hv_reads': [],
-					'vh_reads': [],
-					'total_reads': [result['ReadID']]
-				}
-			
-			# if it's not the first time
-			else:
-				fps[id]['total_count'] += 1
-				fps[id]['total_reads'].append(result['ReadID'])	
-			
-			# add orientation-specific info, if available
-			if result['Orientation'] == 'hv':
-				fps[id]['hv_count'] += 1
-				fps[id]['hv_reads'].append(result['ReadID'])
-			elif result['Orientation'] == 'vh':
-				fps[id]['vh_count'] += 1
-				fps[id]['vh_reads'].append(result['ReadID'])		
+			# each wrong integration is one false positive
+			result_dict = {
+				'id': result['id'],
+				'score': 'fp',
+				'chr': result['Chr'],
+				'pos': f"{result['IntStart']}/{result['IntStop']}",
+				'read_count': len(result['ReadID']) if len(result['ReadID']) > 0 else 1,
+				'reads': result['ReadID']
+			}
+			scores['fp'] += 1
+			scored_sim_results.append(result_dict)
+					
 				
-	# add false positives to scored_sim_results for output
-	for result_dict in fps.values():
-		result_dict['hv_reads'] = ";".join(result_dict['hv_reads'])
-		result_dict['vh_reads'] = ";".join(result_dict['vh_reads'])
-		result_dict['total_reads'] = ";".join(result_dict['total_reads'])
-		scored_sim_results.append(result_dict)
+	# join read lists for output
+	for result_dict in scored_sim_results:
+		result_dict['reads'] = ";".join(result_dict['reads'])
 			
 	# write results to file
 	with open(args.output, "w", newline = '') as outfile:
 		# create DictWriter object for scored_sim_results
 		output_writer = csv.DictWriter(outfile, delimiter = '\t', 
 										fieldnames = ('id', 'score', 'chr', 'pos',
-										'hv_count', 'vh_count', 'total_count', 
-										'hv_reads', 'vh_reads', 'total_reads'))
+										'read_count', 'reads'))
 		output_writer.writeheader()
 		for row in scored_sim_results:
 			output_writer.writerow(row)
-			
 
 	
 	# write summary
@@ -194,7 +153,7 @@ def main(argv):
 		# create dictwrite object for summary
 		output_writer = csv.DictWriter(outfile, delimiter = '\t',
 										fieldnames = ('sim_info', 'found_info',
-													   'analysis_tool', 'window', 'merged-ints',
+													   'analysis_tool', 'window', 
 													   'tp', 'tn', 'fp', 'fn'))
 		output_writer.writeheader()
 		output_writer.writerow(scores)
@@ -218,108 +177,6 @@ def parse_tsv(path):
 			
 			data.append(row)
 			
-	return data	
-			
-def parse_results_tsv(path):
-	"""
-	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
-	
-	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
-	"""
-	with open(path, newline = '') as found:
-		found_reader = csv.DictReader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		for row in found_reader:
-
-			# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
-			info = {'Chr' 			: row['Chr'],
-					'IntStart' 		: row['IntStart'],
-					'IntStop' 		: row['IntStop'],
-					'Orientation'	: row['Orientation'],
-					'ReadID'     	: row['ReadID'],
-					'id'			: f"{row['Chr']}/{row['IntStart']}/{row['VirusRef']}/{row['VirusStart']}/{row['ReadID']}"
-					}
-
-			data.append(info)
-			
-	return data
-	
-def parse_polyidus(path):
-	"""
-	parse polyidus output file (exactHpvIntegrations.tsv), and produce a data structure 
-	similar to parse_results_tsv
-	
-	assign unique id to each integration, which consists of Chrom/IntegrationSite/ChromVirus/ViralIntegrationSite
-	"""
-	with open(path, newline = '') as found:
-		found_reader = csv.DictReader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		for row in found_reader:
-			
-			framgents = row['FragmentName'].split(", ")
-			
-			for fragment in framgents:
-				result = {
-					'Chr' 		  : row['Chrom'],
-					'IntStart' 	  : row['IntegrationSite'],
-					'IntStop' 	  : row['IntegrationSite'],
-					'Orientation' : 'unknown',
-					'ReadID'      : fragment,
-					'id'		  : f"{row['Chrom']}/{row['IntegrationSite']}/{row['ChromVirus']}/{row['ViralIntegrationSite']}"
-				}
-				data.append(result)
-			
-	return data	
-	
-def parse_vifi(path):
-	"""
-	parse vifi output file (exactHpvIntegrations.tsv), and produce a data structure 
-	similar to parse_results_tsv
-	
-		assign unique id to each integration, which consists of the first line in the output for this site (before the reads)
-	"""	
-	data = []
-
-	with open(path) as handle:
-		handle.readline()
-		
-		for line in handle:
-			# ignore divider lines
-			if line[:5] == "##===":
-				continue
-			# if this is a new integration, clear buffer
-			elif line[0] != "#":
-				n_reads = int(line.split()[3])
-				n_seen = 0
-				id = "/".join(line.split())
-	
-			else:
-				# right now we only care about host reads, which always come first
-
-				if n_seen >= n_reads:
-					continue
-				
-				# get info from this line
-				info = line.split()
-				# strip leading '#' from read ID
-				info[0] = info[0][2:]
-
-				ori = 'hv' if info[3] == "True" else 'vh'
-				result = {
-					'Chr' 		  : info[1],
-					'IntStart' 	  : int(info[2]),
-					'IntStop' 	  : int(info[2]),
-					'Orientation' : ori,
-					'ReadID'      : info[0],
-					'id'		  : id
-				}
-				data.append(result)
-				n_seen += 1
-				
 	return data	
 
 def overlap(a1, a2, b1, b2):
@@ -345,7 +202,6 @@ def remove_unsupported_ints(sim):
 	remove any integrations that are not supported by any reads
 	"""
 
-	
 	for i, row in enumerate(sim):
 		if row['left_chimeric'] != "":
 			continue
@@ -359,65 +215,8 @@ def remove_unsupported_ints(sim):
 	
 	return sim
 	
-def parse_merged_bed(path):
-	"""
-	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
 	
-	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
-	"""
-	with open(path, newline = '') as found:
-		found_reader = csv.reader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		row_num = 0
-		for row in found_reader:
-		
-			reads = ";".join(row[4].split(","))
-
-				# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
-			info = {'Chr' 			: row[0],
-							'IntStart' 		: int(row[1]),
-							'IntStop' 		: int(row[2]),
-							'Orientation'	: 'unknown',
-							'ReadID'     	: reads,
-							'id'			: row_num
-								}
-
-			data.append(info)
-			row_num += 1
-			
-	return data
-	
-def parse_seeksv_merged_bed(path):
-	"""
-	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
-	
-	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
-	"""
-	with open(path, newline = '') as found:
-		found_reader = csv.reader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		row_num = 0
-		for row in found_reader:
-
-				# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
-			info = {'Chr' 			: row[0],
-							'IntStart' 		: int(row[1]),
-							'IntStop' 		: int(row[2]),
-							'Orientation'	: 'unknown',
-							'ReadID'     	: '',
-							'id'			: row_num
-								}
-
-			data.append(info)
-			row_num += 1
-			
-	return data
-	
-def parse_polyidus_merged(path):
+def parse_polyidus(path):
 	"""
 	parse polyidus output file (exactHpvIntegrations.tsv), and produce a data structure 
 	similar to parse_merged_bed
@@ -447,7 +246,33 @@ def parse_polyidus_merged(path):
 			
 	return data	
 	
-def parse_vifi_merged(path):
+def parse_results_tsv(path):
+	"""
+	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
+	
+	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
+	"""
+	with open(path, newline = '') as found:
+		found_reader = csv.DictReader(found, delimiter = '\t')
+		data = []
+		
+		# get info from rows
+		for row in found_reader:
+
+			# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
+			info = {'Chr' 			: row['Chr'],
+					'IntStart' 		: row['IntStart'],
+					'IntStop' 		: row['IntStop'],
+					'Orientation'	: 'unknown',
+					'ReadID'     	: row['ReadIDs'].split(','),
+					'id'			: row['SiteID']
+					}
+
+			data.append(info)
+			
+	return data
+	
+def parse_vifi(path):
 	"""
 	parse vifi output file (exactHpvIntegrations.tsv), and produce a data structure 
 	similar to parse_results_tsv
