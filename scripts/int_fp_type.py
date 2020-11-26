@@ -53,7 +53,7 @@ def main(argv):
 				continue	
 				
 			# get reads for this integration
-			reads = row['total_reads'].split(";")
+			reads = row['reads'].split(";")
 			
 			n_found = 0
 			n_not_found = 0
