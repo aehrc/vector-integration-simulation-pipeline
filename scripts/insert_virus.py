@@ -297,12 +297,13 @@ class Events(dict):
 		so check the value of lambda_junction relative to min_len and the length of the shortest viral reference
 		require that both are greater than the 99th percentile of the poisson distribution defined by lambda_junction
 		"""
-
+		if probs['p_gap'] + probs['p_overlap'] == 0:
+			return
 		thresh = poisson.ppf(lambda_junc_percentile, probs['lambda_junction'])
 		if self.min_len is not None:
 			if thresh * 2  > self.min_len:
 				raise ValueError(
-					"There is likely to be a lot of clashes in which the length of the left and right junctions, and the \
+					"There is likely to be a lot of clashes between the length of the left and right junctions, and the \
 					length of the integrations.  Set a shorter lambda_jucntion or a longer minimum length"
 					)
 		if thresh * 2  > min([len(virus) for virus in  self.virus.values()]):
