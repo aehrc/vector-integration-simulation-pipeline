@@ -12,6 +12,7 @@ import pdb
 
 # currently supported tools
 supported_tools = ('pipeline', 'vifi', 'polyidus', 'verse', 'seeksv')
+score_types = ('overlap', 'coords')
 
 def main(argv):
 	#get arguments
@@ -22,6 +23,7 @@ def main(argv):
 	parser.add_argument('--output', help='output file', required=False, default='results.tsv')
 	parser.add_argument('--summary', help='output summary file', required=False, default='summary.tsv')	
 	parser.add_argument('--analysis-tool', choices=supported_tools, required=True)
+	parser.add_argument('--score-type', choices=score_types, required=False, default='coords')
 	
 	args = parser.parse_args()
 	
@@ -77,8 +79,18 @@ def main(argv):
 			found_start = int(result['IntStart'])
 			found_stop = int(result['IntStop'])
 			
-			if overlap(found_start, found_stop, sim_start, sim_stop):
-				
+			# check for overlap
+
+			has_overlap = False
+			if args.score_type == 'overlap':
+				if overlap(found_start, found_stop, sim_start, sim_stop):
+					has_overlap = True
+			elif args.score_type == 'coords':
+				if sim_start <= found_start and sim_stop >= found_start:
+					if sim_start <= found_stop and sim_stop >= found_stop:
+						has_overlap = True
+						
+			if has_overlap:
 				# increment counters
 				sim_results['read_count'] += len(result['ReadID']) if len(result['ReadID']) > 0 else 1
 				sim_results['reads'] += result['ReadID']
@@ -98,6 +110,7 @@ def main(argv):
 			  		'found_info' : args.found_info,
 			  		'analysis_tool' : args.analysis_tool,
 			  		'window'		  : args.window,
+			  		'coords_score_type': args.score_type,
 			  		'tp':0, 'fp':0, 'tn':0, 'fn':0 }
 
 	for result in scored_sim_results:
@@ -153,7 +166,7 @@ def main(argv):
 		# create dictwrite object for summary
 		output_writer = csv.DictWriter(outfile, delimiter = '\t',
 										fieldnames = ('sim_info', 'found_info',
-													   'analysis_tool', 'window', 
+													   'analysis_tool', 'window', 'coords_score_type',
 													   'tp', 'tn', 'fp', 'fn'))
 		output_writer.writeheader()
 		output_writer.writerow(scores)
