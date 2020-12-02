@@ -116,8 +116,6 @@ def main(argv):
 		
 		# if this result wasn't in the sim integrations
 		if 'found' not in result:
-	
-			scores['fp'] += 1
 			sim_found_result['score'] = 'fp'
 			found_results.append(sim_found_result)
 			
@@ -145,9 +143,6 @@ def main(argv):
 										fieldnames = output_fieldnames)
 		output_writer.writeheader()
 		for row in scored_sim_results:
-			row['reads'] = ";".join(row['reads'])
-			row['left_reads'] = ";".join(row['left_reads'])
-			row['right_reads'] = ";".join(row['right_reads'])
 			output_writer.writerow(row)
 
 	
@@ -311,7 +306,7 @@ def find_sim_in_found(sim_result, args, found):
 		if sim_result['read_count'] == 0:
 			sim_result['score'] = 'fn'
 			sim_result['dist'] = closest['dist'] if closest['dist'] != 1e10 else None
-			sim_result['reads'] += closest['found']['ReadID'] if closest['dist'] != 1e10 else None
+			sim_result['reads'] += closest['found']['ReadID'] if closest['dist'] != 1e10 else []
 			
 		# otherwise, assign a minimum distance 
 		else:
@@ -601,6 +596,12 @@ def parse_seeksv(path):
 		# get info from rows
 		row_num = 0
 		for row in found_reader:
+			
+			# filter any rows that are host/host or virus/virus recombinations
+			if 'chr' in row['@left_chr']  and 'chr' in row['right_chr']:
+				continue
+			if 'chr' not in row['@left_chr'] and 'chr'  not in row['right_chr']:
+				continue
 			
 			result = {
 				'Chr' 		  : row['@left_chr'] if 'chr' in row['@left_chr'] else row['right_chr'] ,
