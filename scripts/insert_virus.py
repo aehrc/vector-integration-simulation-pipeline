@@ -435,8 +435,11 @@ class Integrations(list):
 					
 		# check that probabilities are between 0 and 1
 		self.check_prob(self.probs['p_whole'], 'p_whole')
-		self.check_prob(self.probs['p_rearrange'] + self.probs['p_delete'], 'the sum of p_rearrange and p_delete')	
+		#self.check_prob(self.probs['p_rearrange'] + self.probs['p_delete'], 'the sum of p_rearrange and p_delete')	
+		self.check_prob(self.probs['p_rearrange'], 'p_rearrange')	
+		self.check_prob(self.probs['p_delete'], 'p_delete')	
 		self.check_prob(self.probs['p_overlap'] + self.probs['p_gap'], 'the sum of p_overlap and p_gap')
+		
 		self.check_prob(self.probs['p_host_del'], 'p_host_deletion')
 			
 		# check that lambda values are positive floats	
