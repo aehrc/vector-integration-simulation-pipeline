@@ -29,7 +29,7 @@ def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--sim-info', help='information from simulation', required = True, type=str)
-	parser.add_argument('--found-info', help='information from found of simulated reads', required = True, type=str)
+	parser.add_argument('--found-bed', help='information from found of simulated reads', required = True, type=str)
 	parser.add_argument('--window', help='look this amount either side of simulated hPos for integrations in found', required=False, type=int, default=100)
 	parser.add_argument('--output', help='output file', required=False, default='results.tsv')
 	parser.add_argument('--output-sim', help='output all simulated integrations with distance to nearest result', required=False)
@@ -40,17 +40,7 @@ def main(argv):
 	
 	args = parser.parse_args()
 	
-	# read in information about which integrations were found
-	if args.analysis_tool == "pipeline":
-		found = parse_results_tsv(args.found_info)
-	elif args.analysis_tool == "polyidus":
-		found = parse_polyidus(args.found_info)
-	elif args.analysis_tool == "vifi":
-		found = parse_vifi(args.found_info)
-	elif args.analysis_tool == "verse":
-		found = parse_verse(args.found_info)
-	elif args.analysis_tool == "seeksv":
-		found = parse_seeksv(args.found_info)
+	found = parse_bed(args.found_bed)
 	
 	# read in infomration about simulated integrations
 	sim = parse_tsv(args.sim_info)
@@ -149,7 +139,7 @@ def main(argv):
 	# check scored_sim_results (which has one entry for each simulated integration) 
 	# for true positives and false negatives	
 	scores = {'sim_info'      : args.sim_info,
-			  		'found_info' : args.found_info,
+			  		'found_info' : args.found_bed,
 			  		'analysis_tool' : args.analysis_tool,
 			  		'window'		  : args.window,
 			  		'coords_score_type': args.score_type,
@@ -415,204 +405,29 @@ def remove_unsupported_ints(sim):
 		sim.pop(i)
 	
 	return sim
-	
-	
-def parse_polyidus(path):
+
+
+def parse_bed(path):
 	"""
-	parse polyidus output file (exactHpvIntegrations.tsv), and produce a data structure 
-	similar to parse_merged_bed
-	
-	assign unique id to each integration, which consists of row number in output file
-	"""
+	parse bed file with results
+	"""	
 	with open(path, newline = '') as found:
-		found_reader = csv.DictReader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		row_num = 0
-		for row in found_reader:
-			
-			fragments = row['FragmentName'].split(", ")
-			
-			result = {
-				'Chr' 		  : row['Chrom'],
-				'IntStart' 	  : int(row['IntegrationSite']),
-				'IntStop' 	  : int(row['IntegrationSite']),
-				'Orientation' : 'unknown',
-				'ReadID'      : fragments,
-				'id'		  : row_num
-				}
-			data.append(result)
-			row_num += 1
-			
-	return data	
-	
-def parse_results_tsv(path):
-	"""
-	parse found-info from our pipeline.  Get information necessary to assess true/false postive/negative integration
-	
-	assign unique ID to each integration, which consists, of Chr/IntStart/Virus/VirusStart/ReadID
-	"""
-	with open(path, newline = '') as found:
-		found_reader = csv.DictReader(found, delimiter = '\t')
+		found_reader = csv.reader(found, delimiter = '\t')
 		data = []
 		
 		# get info from rows
 		for row in found_reader:
 
 			# only need to keep fields 'Chr', 'IntStart', 'IntStop', 'Orientation', and 'ReadID'
-			info = {'Chr' 			: row['Chr'],
-					'IntStart' 		: int(row['IntStart']),
-					'IntStop' 		: int(row['IntStop']),
+			info = {'Chr' 			: row[0],
+					'IntStart' 		: int(row[1]),
+					'IntStop' 		: int(row[2]),
 					'Orientation'	: 'unknown',
-					'ReadID'     	: row['ReadIDs'].split(','),
-					'id'			: row['SiteID']
+					'ReadID'     	: '',
+					'id'			: ''
 					}
 
 			data.append(info)
-			
-	return data
-	
-def parse_vifi(path):
-	"""
-	parse vifi output file (exactHpvIntegrations.tsv), and produce a data structure 
-	similar to parse_results_tsv
-	
-		assign unique id to each integration, which consists of the first line in the output for this site (before the reads)
-	"""	
-	data = []
-
-	with open(path) as handle:
-		handle.readline()
-		reads = set()
-		n_ints = 0
-		for line in handle:
-			# ignore divider lines
-			if line[:5] == "##===":
-				continue
-			
-			# if this is a new integration, collect info and then clear buffer
-			elif line[0] != "#":
-
-				# if there are some reads for the last integration
-				if len(reads) :
-					result = {
-										'Chr' 		  	: chrom,
-										'IntStart' 	  : start,
-										'IntStop' 	  : stop,
-										'Orientation' : 'unknown',
-										'ReadID'			: reads,
-										'id'					: n_ints
-						}
-					
-					data.append(result)		
-					n_ints += 1							
-				
-				# get info about this integration
-				
-				info = line.split()
-				chrom = info[0]
-				start = int(info[1])
-				stop = int(info[2])
-				reads = set()
-				
-			# otherwise, collect reads
-			else:
-				# get info from this line
-				info = line.split()
-				# right now we only care about host reads
-				if info[1] != chrom:
-					continue				
-					
-				# get if read is at hv (left) or vh (right) junction
-				reads.add(info[0][2:])
-				
-	# add last integration
-	if len(reads) :
-		result = {
-							'Chr' 		  	: chrom,
-							'IntStart' 	  : start,
-							'IntStop' 	  : stop,
-							'Orientation' : 'unknown',
-							'ReadID'			: reads,
-							'id'					: n_ints
-						}
-					
-		data.append(result)		
-					
-	return data	
-
-def parse_verse(path):
-	"""
-	parse verse output file (integration-sites.txt), and produce a data structure 
-	similar to parse_merged_bed
-	
-	assign unique id to each integration, which consists of row number in output file
-	"""
-	with open(path, newline = '') as found:
-		
-		# if file is empty
-		if found.readline() == "":
-			return []
-		
-		found.seek(0)
-		found_reader = csv.DictReader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		row_num = 0
-		for row in found_reader:
-			
-			result = {
-				'Chr' 		  : row['Chromosome 1'] if row['Chromosome 2'] == 'chrVirus' else row['Chromosome 2'],
-				'IntStart' 	  : int(row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2']),
-				'IntStop' 	  : int(row['Position 1'] if row['Chromosome 2'] == 'chrVirus' else row['Position 2']),
-				'Orientation' : 'unknown',
-				'ReadID'      : '',
-				'id'		  : row_num
-				}
-			data.append(result)
-			row_num += 1
-			
-	return data	
-
-def parse_seeksv(path):
-	"""
-	parse seeksv output file, and produce a data structure 
-	similar to parse_results_tsv
-	
-	assign unique id to each integration, which consists of row number in output file
-	"""
-	with open(path, newline = '') as found:
-		
-		# if file is empty
-		if found.readline() == "":
-			return []
-		
-		found.seek(0)
-		found_reader = csv.DictReader(found, delimiter = '\t')
-		data = []
-		
-		# get info from rows
-		row_num = 0
-		for row in found_reader:
-			
-			# filter any rows that are host/host or virus/virus recombinations
-			if 'chr' in row['@left_chr']  and 'chr' in row['right_chr']:
-				continue
-			if 'chr' not in row['@left_chr'] and 'chr'  not in row['right_chr']:
-				continue
-			
-			result = {
-				'Chr' 		  : row['@left_chr'] if 'chr' in row['@left_chr'] else row['right_chr'] ,
-				'IntStart' 	  : int(row['left_pos'] if 'chr' in row['@left_chr'] else row['right_pos']),
-				'IntStop' 	  : int(row['left_pos'] if 'chr' in row['@left_chr'] else row['right_pos']),
-				'Orientation' : 'unknown',
-				'ReadID'      : '',
-				'id'		  : row_num
-				}
-			data.append(result)
-			row_num += 1
 			
 	return data	
 
