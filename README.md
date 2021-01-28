@@ -1,4 +1,4 @@
-# Viral integraiton simulation
+# Viral integration simulation
 
 Scripts and snakemake workflow for simulating integration of a virus/vector into a host.
 
