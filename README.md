@@ -5,7 +5,7 @@ Scripts and snakemake workflow for simulating integration of a virus/vector into
 ## Overview
 
 In order to simulate data, the snakemake will:
-1. Parses the config file to generate all combinations of the specified paramters.  Each combionation is a 'condition', and each condition has one or more 'replicates'
+1. Parses the config file to generate all combinations of the specified paramters.  Each combination is a 'condition', and each condition has one or more 'replicates'.  All replicates and conditions have a different random seed.
 2. Simulates integration using the `python3` script `scripts/insert_virus.py`.  This script outputs a `fasta` file consisting of the host with viral sequences inserted, and two files describing the location and properties of the integrated virus and episomes
 3. `art_illumina` is used to simulate paried-end reads based on the `fasta` file from the previous step
 4. A script `scripts/annotate_reads.py` annotates the reads crossing host/viral junctions for each integration
@@ -85,7 +85,7 @@ For each dataset, the following parameters should be specified:
 
 #### Output directory
 
-Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute or relative to the snakefile.
+Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute, or relative to the snakefile.
 
 #### Host, viral references
 
