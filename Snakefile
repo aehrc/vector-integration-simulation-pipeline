@@ -29,6 +29,7 @@ rule all:
 			outpath = [config[exp]['out_directory'] for exp in config.keys()]
 			),
 		sim_df.loc[:,'annotated_info_filename'],
+		sim_df.loc[:,'sim_bed_filename']
 		
 
 

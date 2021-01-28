@@ -51,7 +51,7 @@ def parse_config(config):
 
 
 
-	#### assign default values if they aren't already ####
+	#### assign default values if they aren't already assigned ####
 
 
 	for exp in config:
@@ -164,6 +164,7 @@ def parse_config(config):
 				 'read_sam_filename',
 				 'sorted_bam_filename',
 				 'annotated_info_filename',
+				 'sim_bed_filename',
 				 'sample',
 				 'unique'
 				 ]
@@ -236,6 +237,9 @@ def parse_config(config):
 	
 			# annotated_info_filename
 			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.int-info.annotated.tsv")
+			
+			# sim bed filename
+			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.int-info.bed")			
 			
 			# sample name: combination of condition and replicate
 			sample = f"{row[1]}.rep{row[2]}"
