@@ -1,11 +1,11 @@
-# Viral integraiton simulation
+# Viral integration simulation
 
 Scripts and snakemake workflow for simulating integration of a virus/vector into a host.
 
 ## Overview
 
 In order to simulate data, the snakemake will:
-1. Parses the config file to generate all combinations of the specified paramters.  Each combionation is a 'condition', and each condition has one or more 'replicates'
+1. Parses the config file to generate all combinations of the specified paramters.  Each combination is a 'condition', and each condition has one or more 'replicates'.  All replicates and conditions have a different random seed.
 2. Simulates integration using the `python3` script `scripts/insert_virus.py`.  This script outputs a `fasta` file consisting of the host with viral sequences inserted, and two files describing the location and properties of the integrated virus and episomes
 3. `art_illumina` is used to simulate paried-end reads based on the `fasta` file from the previous step
 4. A script `scripts/annotate_reads.py` annotates the reads crossing host/viral junctions for each integration
@@ -85,7 +85,7 @@ For each dataset, the following parameters should be specified:
 
 #### Output directory
 
-Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute or relative to the snakefile.
+Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute, or relative to the snakefile.
 
 #### Host, viral references
 
@@ -117,4 +117,9 @@ The user may specify a number of desired integration properties.  Most propertie
 
 The parameters `read_len` (read length), `fcov` (fold coverage), `frag_len` (mean fragment length), `frag_std` (standard deviation of fragment length), and `seq_sys` will be used during read simulation with `art_illumina`.  Further details of these paramters can be found at the [art manpage](https://manpages.debian.org/stretch/art-nextgen-simulation-tools/art_illumina.1.en.html).
 
+## Outputs
 
+The main outputs of the pipeline are:
+1. Fasta file containing host sequence with integrated viral sequences (and episomes, if appropriate)
+2. Paired-end reads from `art_illumina` in fastq and sam format
+3. Text file containing location and properties of each integration, in a tab-separated format
