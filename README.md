@@ -117,4 +117,9 @@ The user may specify a number of desired integration properties.  Most propertie
 
 The parameters `read_len` (read length), `fcov` (fold coverage), `frag_len` (mean fragment length), `frag_std` (standard deviation of fragment length), and `seq_sys` will be used during read simulation with `art_illumina`.  Further details of these paramters can be found at the [art manpage](https://manpages.debian.org/stretch/art-nextgen-simulation-tools/art_illumina.1.en.html).
 
+## Outputs
 
+The main outputs of the pipeline are:
+1. Fasta file containing host sequence with integrated viral sequences (and episomes, if appropriate)
+2. Paired-end reads from `art_illumina` in fastq and sam format
+3. Text file containing location and properties of each integration, in a tab-separated format
