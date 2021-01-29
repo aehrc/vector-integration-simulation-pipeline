@@ -3,6 +3,16 @@ def return_lower(expr1, expr2):
 		return expr1
 	return expr2
 
+def bandpass(num, minimum, maximum):
+	num = min(maximum, num)
+	return max(num, minimum)
+
+def get_mem(file_name_list, attempt, mult_factor=2, minimum=100, maximum=50000):
+	resource = int(sum([os.stat(file).st_size/1e6 for file in file_name_list])) * mult_factor * attempt
+	resource = min(maximum, resource)
+	return max(minimum, resource)
+
+
 rule write_summary:
 	input:
 		list(ref_dict.values())
@@ -31,7 +41,7 @@ rule simulate_integrations:
 	container:
 		"docker://szsctt/simvi:2"
 	resources:
-		mem_mb= lambda wildcards, attempt, input: return_lower(attempt * ( 5 * int((os.path.getsize(input.host)/1000000)) + int(get_parameter(wildcards, 'int_num')) * 50 + int(get_parameter(wildcards, 'epi_num')) * 10), 100000),
+		mem_mb= lambda wildcards, attempt, input: bandpass(get_mem(input, attempt, 10) + int(get_parameter(wildcards, 'int_num'))*10 + int(get_parameter(wildcards, 'epi_num'))*10, 100, 50000),
 		time = lambda wildcards, attempt: ('30:00', '2:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
 		nodes = 1
 	params:
