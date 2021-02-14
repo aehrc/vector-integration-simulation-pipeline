@@ -35,7 +35,7 @@ def main(argv):
 	parser.add_argument('--output-sim', help='output all simulated integrations with distance to nearest result', required=False)
 	parser.add_argument('--output-found', help='output all results with distance to nearest simulated integration', required=False)	
 	parser.add_argument('--summary', help='output summary file', required=False, default='summary.tsv')	
-	parser.add_argument('--analysis-tool', choices=supported_tools, required=True)
+	parser.add_argument('--analysis-tool', required=True)
 	parser.add_argument('--score-type', choices=score_types, required=False, default='coords_mean')
 	
 	args = parser.parse_args()
