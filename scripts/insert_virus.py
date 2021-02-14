@@ -794,6 +794,7 @@ class Integrations(list):
 		# accounting for bases deleted from the host and overlaps
 		# note that integration.pos is always to the left of any overlapped bases, so here is where we need to account for them
 		host['coords'] =  (integration.pos + integration.junc_props['host_del_len'] + overlap_bases, host_stop)
+
 		assert host['coords'][1] > host['coords'][0]
 		
 		self.model[integration.chr].insert(i, host)
@@ -1256,19 +1257,22 @@ class Integration(dict):
 		if pos_success is False:
 			self.pos = None
 			return
+
 		
 		# number of bases deleted from host chromosome
-		
 		if junc_props['host_del'] is False:
 			self.host_deleted = 0 
 		else:
-
 			self.host_deleted = junc_props['host_del_len']
 			
 			# but only delete up to the length of the segment in which this integration occurs, 
 			# so that we don't delete any integrations as well
 			for seg in model[self.chr]:
 		
+				# skip viral and ambiguous segments
+				if seg['seq_name'] != self.chr:
+					continue
+					
 				# find if this is the segment in which the integration occurs
 				if not self.has_overlap(self.pos, self.pos, seg['coords'][0], seg['coords'][1]):
 					continue
