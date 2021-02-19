@@ -27,7 +27,7 @@ rule annotate_reads:
 		
 rule sim_bed:
 	input:
-		info = rules.simulate_integrations.output.sim_info
+		info = rules.annotate_reads.output.annotated_info
 	output:
 		bed = "{outpath}/{exp}/sim_ints/{samp}.int-info.bed",
 		tmp = temp("{outpath}/{exp}/sim_ints/{samp}.int-info.bed.tmp")
