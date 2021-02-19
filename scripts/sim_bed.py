@@ -20,23 +20,33 @@ def main(args):
 		outwriter = csv.writer(outfile, delimiter='\t')
 		
 		for line in inreader:
+		
 			chrom = line['chr']
 			pos = int(line['hPos'])
 			
-			# left ambiguous bases
-			left_type = line['juncTypes'].split(',')[0]
-			left_len = int(line['juncLengths'].split(',')[0])
+			# check if left junction has supporting reads
+			if not (line['left_chimeric'] == '' and line['left_discord'] == ''):
+				
+				# left ambiguous bases
+				left_type = line['juncTypes'].split(',')[0]
+				left_len = int(line['juncLengths'].split(',')[0])
 			
-			# right ambiguous bases
-			right_type = line['juncTypes'].split(',')[1]
-			right_len = int(line['juncLengths'].split(',')[1])
+				# write left junction
+				#outwriter.writerow((chrom, pos, pos+left_len, '+'))	
+				outwriter.writerow((chrom, pos, pos+left_len))
 			
-			# deleted bases
-			deleted = int(line['hDeleted'])
+			# check if right junction has supporting reads
+			if not (line['right_chimeric'] == '' and line['right_discord'] == ''):
+				# right ambiguous bases
+				right_type = line['juncTypes'].split(',')[1]
+				right_len = int(line['juncLengths'].split(',')[1])
 			
-			# write output
-			outwriter.writerow((chrom, pos, pos+left_len))
-			outwriter.writerow((chrom, pos+left_len+deleted, pos+left_len+deleted+right_len))
+				# deleted bases
+				deleted = int(line['hDeleted'])
+			
+				# write right junction
+				#outwriter.writerow((chrom, pos+left_len+deleted, pos+left_len+deleted+right_len, '-'))
+				outwriter.writerow((chrom, pos+left_len+deleted, pos+left_len+deleted+right_len))
 	
 if __name__ == "__main__":
 	main(sys.argv)
