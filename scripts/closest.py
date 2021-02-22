@@ -32,7 +32,7 @@ def main(args):
 	header_base = ('closest_chr', 'closest_start', 'closest_stop', 'closest_ori', 'd')
 	header = ['chr', 'start', 'stop', 'ori']
 	for dist in dist_types:
-		header += [f"{dist.__qualname__}_{col}" for col in header_base]
+		header += [f"{col}_{dist.__qualname__}" for col in header_base]
 	header = "\t".join(header)
 	
 	# if no output file, print to stdout
