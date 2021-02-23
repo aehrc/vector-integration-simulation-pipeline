@@ -76,7 +76,7 @@ def find_closest(i_a, intervals_b, dist_method):
 	if closest == (".", -1, -1, "."):
 		d = -1
 			
-	return *closest, d
+	return [*closest, d]
 
 def check_coords(start_1, stop_1, start_2, stop_2):
 	assert stop_1 >= start_1
