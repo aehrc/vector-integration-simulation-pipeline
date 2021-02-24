@@ -5,7 +5,16 @@ import itertools
 ## default values to fill in if they aren't set
 # random seed - for both python script and ART
 default_replicates = 3
-default_initial_seed = 12345
+default_initial_seed = 1234567
+default_seed_increment = 5
+
+# genome variation parameters
+default_snp_count = 100
+default_indel_count = 10
+default_cnv_count = 3
+default_inversion_count = 1
+default_translocation_count = 0
+
 # integration parameters
 default_seed_increment = 1000
 default_int_num = [5]
@@ -20,14 +29,13 @@ default_p_host_deletion = [0.2]
 default_lambda_host_deletion = [1000]
 default_min_sep = [500]
 default_min_len = [500]
+
 # read simulation parameters
 default_read_len = [150]
 default_fcov = [10]
 default_frag_len = [500]
 default_frag_std = [30]
 default_seq_sys = ["HS25"]
-
-
 
 
 def parse_config(config):
@@ -64,12 +72,15 @@ def parse_config(config):
 			print(f"must have at least one replicate for experiment {exp}: setting number of replicates to 1")
 	
 		# initial random seed and increment
-		config = check_and_set_default(config, exp, 'initial_seed', default_replicates)
-		check_required(config, exp, 'initial_seed')
-		check_type(config, exp, 'initial_seed', int)
-		config = check_and_set_default(config, exp, 'seed_increment', default_replicates)
-		check_required(config, exp, 'seed_increment')
-		check_type(config, exp, 'seed_increment', int)
+		config = standard_checks_int(config, exp, 'initial_seed', default_initial_seed)
+		config = standard_checks_int(config, exp, 'seed_increment', default_seed_increment)
+		
+		# genome variation parameters
+		config = standard_checks_int(config, exp, 'snp_count', default_snp_count)
+		config = standard_checks_int(config, exp, 'indel_count', default_indel_count)		
+		config = standard_checks_int(config, exp, 'cnv_count', default_cnv_count)
+		config = standard_checks_int(config, exp, 'inversion_count', default_inversion_count)		
+		config = standard_checks_int(config, exp, 'translocation_count', default_translocation_count)
 
 		# integration parameters
 		config = standard_checks(config, exp, 'min_sep', default_min_sep, list, int) 
@@ -153,11 +164,16 @@ def parse_config(config):
 				 'frag_std',
 				 'seq_sys',
 				 
-				 # columns which depend on the columns above
+				 # columns which depend on the columns above or are constant
 				 'out_directory',
 				 'host_fasta',
 				 'virus_fasta',
 				 'random_seed',
+				 'snp_count',
+				 'indel_count',
+				 'cnv_count',
+				 'inversion_count',
+				 'translocation_count',
 				 'sim_fa_filename',
 				 'sim_int_info_filename',
 				 'sim_epi_info_filename',
@@ -219,6 +235,13 @@ def parse_config(config):
 	
 			# random_seed
 			row.append(config[exp]['initial_seed'] + i * config[exp]['seed_increment'])
+			
+			# genome simulation parameters
+			row.append(config[exp]['snp_count'])		
+			row.append(config[exp]['indel_count'])	
+			row.append(config[exp]['cnv_count'])	
+			row.append(config[exp]['inversion_count'])	
+			row.append(config[exp]['translocation_count'])
 	
 			# sim_fa_filename
 			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.fa")
@@ -257,7 +280,7 @@ def parse_config(config):
 
 	return config, df, ref_dict
 	
-		#### checking functions ####
+#### checking functions ####
 
 # check that required field exists
 def check_required(config, exp, field):
@@ -313,4 +336,9 @@ def standard_checks(config, exp, field, default, field_type, entry_type):
 	
 	return config
 
-
+def standard_checks_int(config, exp, field, default):
+		config = check_and_set_default(config, exp, field, default_replicates)
+		check_required(config, exp, field)
+		check_type(config, exp, field, int)
+		
+		return config

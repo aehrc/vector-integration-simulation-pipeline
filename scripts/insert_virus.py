@@ -70,6 +70,7 @@ def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--host', help='host fasta file', required = True, type=str)
+	parser.add_argument('--simug_snp_indel', help='output file from simuG to map location of snps and indels')
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
 	parser.add_argument('--ints', help = 'output fasta file', type=str, default="integrations.fa")
 	parser.add_argument('--int_info', help = 'output tsv with info about viral integrations', type=str, default="integrations.tsv")
@@ -110,7 +111,8 @@ def main(argv):
 	if args.verbose is True:
 		print("initialising a new Events object")
 
-	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True, min_len = args.min_len)
+	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True, 
+								min_len = args.min_len, simug_snp_indel = args.simug_snp_indel)
 	
 	# add integrations
 	seqs.add_integrations(probs, args.int_num, max_attempts, 
@@ -133,8 +135,10 @@ class Events(dict):
 	"""
 	
 	def __init__(self, host_fasta_path, virus_fasta_path, 
-								fasta_extensions = ['.fa', '.fna', '.fasta'], 
-								seed = 12345, verbose = False, min_len = None):
+								fasta_extensions = ['.fa', '.fna', '.fasta'] , 
+								seed = 12345, verbose = False, min_len = None,
+								simug_snp_indel = None, simug_cnv = None, 
+								simug_inversion = None, simug_tranlocation = None):
 		"""
 		initialise events class by importing a host and viral fasta, and setting up the random number generator
 		"""
@@ -175,6 +179,14 @@ class Events(dict):
 		else:
 			raise OSError("Could not open virus fasta")
 			
+		# check for SNP and indel map file from simuG - need to account for indels in output
+		self.indel = [row for row in self.read_simug_file(simug_snp_indel) if row['variant_type'] == 'INDEL']
+		
+		# other types of structural variants
+		self.cnv = self.read_simug_file(simug_cnv)
+		self.inversion = self.read_simug_file(simug_inversion)
+		self.tranlocation = self.read_simug_file(simug_tranlocation)
+
 		# check that minimum length is greater than the length of all the viral references
 		if self.min_len is not None:
 			if not all([len(virus) >= self.min_len for virus in self.virus.values()]):
@@ -192,6 +204,23 @@ class Events(dict):
 		# instantiate random number generator
 		self.rng = np.random.default_rng(seed)
 		
+	def read_simug_file(self, filename):
+		"""
+		open simuG output file and read contents into memory
+		"""
+		if filename is None:
+			return None
+			
+		assert path.isfile(filename)
+		lines = []
+		with open(filename, 'r') as infile:
+			reader = csv.DictReader(infile, delimiter =  '\t')
+			for row in reader:
+				lines.append(row)
+				
+		return lines
+		 
+	
 	def add_integrations(self, probs, int_num, max_attempts = 50, model_check = False, min_sep = 1):
 		"""
 		Add an Integrations object with int_num integrations, with types specified by probs,
@@ -225,7 +254,7 @@ class Events(dict):
 		self.check_junction_length(probs)
 			
 		# instantiate Integrations object
-		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep, self.min_len)
+		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep, self.min_len, self.indel)
 		
 		# add int_num integrations
 		if self.verbose is True:
@@ -326,10 +355,10 @@ class Events(dict):
 			self.epis._Episomes__save_fasta(file, append = True)
 			
 		if ('ints' not in vars(self)) and ('epis' not in vars(self)):
-			print("warning: no integrations or episomes have been added" , flush=True)
+			print("warning: no integrations or episomes have been added")
 			
 		if self.verbose is True:
-			print(f"saved fasta with integrations and episomes to {file}", flush=True)
+			print(f"saved fasta with integrations and episomes to {file}")
 			
 	def save_integrations_info(self, file):
 		"""
@@ -340,7 +369,7 @@ class Events(dict):
 		self.ints._Integrations__save_info(file)
 		
 		if self.verbose is True:
-			print(f"saved inforamtion about integrations to {file}", flush=True)
+			print(f"saved information about integrations to {file}")
 		
 	def save_episomes_info(self, file):
 		"""
@@ -383,7 +412,7 @@ class Integrations(list):
 	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
 
 	"""
-	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1, min_len=None):
+	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1, min_len=None, indel=None):
 		"""
 		Function 
 		to initialise Integrations object
@@ -400,6 +429,7 @@ class Integrations(list):
 		assert isinstance(min_len, int) or min_len is None
 		if min_len is not None:
 			assert min_len > 0
+		assert isinstance(indel, list) or indel is None
 		
 		# assign properties common to all integrations
 		self.host = host
@@ -410,6 +440,7 @@ class Integrations(list):
 		self.model_check = model_check
 		self.min_sep = min_sep
 		self.min_len = min_len
+		self.indel = indel
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -531,7 +562,6 @@ class Integrations(list):
 		assert len(junc_props) == 4
 
 		# make an integration
-		t0 = time.time()
 		integration = Integration(self.host, 
 								  self.virus,
 								  model = self.model,
@@ -541,8 +571,6 @@ class Integrations(list):
 								  junc_props = junc_props,
 								  min_sep = self.min_sep
 								  )
-		t1 = time.time()
-		print(f"made integration in {t1-t0}s", flush=True)
 		
 		# append to self if nothing went wrong with this integration
 		if integration.chunk.pieces is not None:
@@ -551,10 +579,7 @@ class Integrations(list):
 				
 				self.append(integration)
 				
-				t0 = time.time()
 				self.__update_model(integration)
-				t1 = time.time()
-				print(f"updated model in {t1-t0}s")
 				
 				return True
 				
@@ -892,7 +917,8 @@ class Integrations(list):
 		Output the following info for each integration (one integration per line) into a tab-separated file:
 		Note that all co-orindates are 0-based
 		 - chr: host chromosome on which integration occurs
-		 - hPos: 0-based position in the original host fasta at which integration occurs
+		 - hPos: 0-based position in the original host fasta (before adding variation with simuG) at which integration occurs 
+		 - hPos_input_fasta: 0-based position in the input host fasta at which integration occurs
 		 	(relative to input fasta)
 		 - intStart: position of the ambiguous bases (gap, overlap or clean junction) on left side,
 		 	in final output fasta (accounting for any previous integrations)
@@ -917,9 +943,26 @@ class Integrations(list):
 			
 		with open(filename, "w", newline='') as csvfile:
 			intwriter = csv.writer(csvfile, delimiter = '\t')
-			intwriter.writerow(['id', 'chr', 'hPos', 'leftStart', 'leftStop',  'rightStart', 'rightStop', 'hDeleted', 'virus', 'vBreakpoints', 'vOris', 'juncTypes', 'juncBases', 'juncLengths', 'whole', 'rearrangement', 'deletion', 'n_swaps', 'n_delete'])
+			intwriter.writerow(['id', 'chr', 'hPos', 'hPos_input_fasta', 'leftStart', 'leftStop',  'rightStart', 'rightStop', 'hDeleted', 'virus', 'vBreakpoints', 'vOris', 'juncTypes', 'juncBases', 'juncLengths', 'whole', 'rearrangement', 'deletion', 'n_swaps', 'n_delete', 'in_indel'])
 			for i, integration in enumerate(self):
 				assert integration.pos is not None
+
+				# to calculate hPos, we need to account for variants introduced by simuG
+				h_pos = integration.pos
+				
+				# find all relevant indels (on the same chromosome and before this integration position)
+				if self.indel is not None:
+					rel_indels = [row for row in self.indel if integration.chr == row['ref_chr']]
+					rel_indels = [row for row in rel_indels if integration.pos >= int(row['sim_end'])]
+				
+					# is this integration in an indel?
+					in_indel = any([integration.pos >= int(row['sim_start']) and integration.pos <= int(row['sim_end']) for row in rel_indels])
+					
+					# net number of bases added/deleted
+					net_len = sum([len(row['sim_allele']) - len(row['ref_allele']) for row in rel_indels])
+					
+					# adjust position
+					h_pos += net_len
 				
 				# calculate start and stop position for this integration			
 				left_start = integration.pos + previous_ints[integration.chr] - deleted_bases[integration.chr]
@@ -949,6 +992,7 @@ class Integrations(list):
 				# write a row for this integration
 				intwriter.writerow([integration.id,
 									integration.chr, 
+									h_pos, 
 									integration.pos, 
 									left_start, 
 									left_stop,
@@ -965,7 +1009,8 @@ class Integrations(list):
 									integration.chunk.chunk_props['n_swaps'] > 0,
 									integration.chunk.chunk_props['n_delete'] > 0,
 									integration.chunk.chunk_props['n_swaps'],
-									integration.chunk.chunk_props['n_delete']])
+									integration.chunk.chunk_props['n_delete'],
+									in_indel])
 
 	def __str__(self):
 		return f"Viral integrations object with {len(self)} integrations of viral sequences {list(self.virus.keys())} into host chromosomes {list(self.host.keys())}"
