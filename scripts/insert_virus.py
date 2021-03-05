@@ -70,7 +70,7 @@ def main(argv):
 	#get arguments
 	parser = argparse.ArgumentParser(description='simulate viral integrations')
 	parser.add_argument('--host', help='host fasta file', required = True, type=str)
-	parser.add_argument('--simug_snp_indel', help='output file from simuG to map location of snps and indels')
+#	parser.add_argument('--simug_snp_indel', help='output file from simuG to map location of snps and indels')
 	parser.add_argument('--virus', help = 'virus fasta file', required = True, type=str)
 	parser.add_argument('--ints', help = 'output fasta file', type=str, default="integrations.fa")
 	parser.add_argument('--int_info', help = 'output tsv with info about viral integrations', type=str, default="integrations.tsv")
@@ -94,6 +94,7 @@ def main(argv):
 
 	args = parser.parse_args()
 	
+	args.simug_snp_indel = None
 	#### generate integrations ####		
 	
 	# generate dictionary of probabilities and lambda/means as input for Integrations class
@@ -180,7 +181,10 @@ class Events(dict):
 			raise OSError("Could not open virus fasta")
 			
 		# check for SNP and indel map file from simuG - need to account for indels in output
-		self.indel = [row for row in self.read_simug_file(simug_snp_indel) if row['variant_type'] == 'INDEL']
+		if simug_snp_indel is not None:
+			self.indel = [row for row in self.read_simug_file(simug_snp_indel) if row['variant_type'] == 'INDEL']
+		else:
+			self.indel = None
 		
 		# other types of structural variants
 		self.cnv = self.read_simug_file(simug_cnv)
@@ -911,20 +915,123 @@ class Integrations(list):
 				
 
 				handle.write("\n")
+
+	
+	def __handle_indels(self, integration):
+		"""
+		this function gets the offset due to indels that occurs before an input integration
+		
+		it also remove from the list of indels any indels that occur in the region of the input host chomosome
+		that is deleted after this integration
+		
+		it also calculates the length of the host deletion in the original fasta,
+		which differs from the length in the input fasta (integration.host_deleted) 
+		if the deleted region contains indels (which are not present in the original fasta
+		
+		it uses a list of indels: self.indel_list_for_consuming
+		each time indels are accounted for, they are removed from the list (consumed), so they can only be counted 
+		once for increasing positions
+		
+		
+		
+		
+		03/03/2021
+		Abandoned the indel feature for now, but left this function in case I decide to come back to it.
+		
+		The main problem I have is the way I'm defining the integration position - this is to the left of any ambiguous bases
+		
+		However, it should probably be after the left ambiguous bases and before the right ambiguous bases.  Deletions
+		should also occur before the right ambiguous bases, so that the homology occurs after the deletion
+		
+		With the current definition of the integration position, it's difficult to handle indels in a consistent way, but
+		changing to the more sensible definition is a big job
+		"""
+		host_position_offset = 0
+		host_deletion_offset = 0
+	
+		if self.indel is None:
+			integration.host_deleted_original_fasta = integration.host_deleted
+			return host_position_offset, host_deletion_offset
+		
+		if not hasattr(self, "indel_list_for_consuming"):
+			self.indel_list_for_consuming = list(self.indel)
+			
+						
+		# find indels before the position of this integration
+		prior_indels = []
+		i = 0
+		while i < len(self.indel_list_for_consuming):
+			indel = self.indel_list_for_consuming[i]
+			if indel['ref_chr'] != integration.chr:
+				continue
+			
+			# if this indel is before the integration position
+			if integration.pos >= int(indel['sim_end']):
+				host_position_offset += len(indel['sim_allele']) - len(indel['ref_allele'])
+				self.indel_list_for_consuming.pop(i)
+			
+			# if this integration is after the integration position (assumes indels are sorted)
+			elif integration.pos < int(indel['sim_start']):
+				break
+			else:
+				i += 1
+				
+
+		# find indels that are in the deleted region
+		del_region_indels = []
+		i = 0
+		while i < len(self.indel_list_for_consuming):
+			indel = self.indel_list_for_consuming[i]	
+			if indel['ref_chr'] != integration.chr:
+				continue
+			
+			# if integration is in this insertion
+			if int(indel['sim_start']) <= integration.pos and int(indel['sim_end']) > integration.pos:
+				# split insertion at integration 
+				
+				# add portion of insertion that's before integration.pos to host position offset
+				
+				# add portion of insertion that's after integration.pos to deletion offset
+				pass
+			
+			# if indel is in deleted region
+
+				# add indel length to deletion offset
+				
+			
+			# if insertion straddles end of deleted region
+				pass
+					# split insertion at end of deleted region
+					
+					# add portion of insetion that's before end of deleted region to deletion offset
+				
+					# retain portion of insertion that's after end of deleted region for next integration
+			
+			# if indel is after deleted region, we're done
+			elif integration.pos < int(indel['sim_stop']):
+				break	
+			else:
+				i += 1		
+		
+		integration.host_deleted_original_fasta = integration.host_deleted + host_deletion_offset
+		
+		return host_position_offset, host_deletion_offset			 
+			
 		
 	def __save_info(self, filename):
 		"""
 		Output the following info for each integration (one integration per line) into a tab-separated file:
 		Note that all co-orindates are 0-based
 		 - chr: host chromosome on which integration occurs
-		 - hPos: 0-based position in the original host fasta (before adding variation with simuG) at which integration occurs 
+		 - hPos: 0-based position in the ORIGINAL host fasta (before adding variation with simuG) at which integration occurs 
 		 - hPos_input_fasta: 0-based position in the input host fasta at which integration occurs
 		 	(relative to input fasta)
-		 - intStart: position of the ambiguous bases (gap, overlap or clean junction) on left side,
+		 - leftStart, leftStop: position of the ambiguous bases (gap, overlap or clean junction) on left side,
 		 	in final output fasta (accounting for any previous integrations)
-		 - intStop: position of the ambiguous bases (gap, overlap or clean junction) on left side
+		 - rightStart, rightStop: position of the ambiguous bases (gap, overlap or clean junction) on right side
 		 	in final output fasta (accounting for any previous integrations)
-		 - hDeleted: number of bases deleted from host chromosome
+		 - hDeleted: number of bases deleted from host chromosome in original fasta (before adding variation)
+		 - hDeleted_input_fasta: number of bases deleted from host chromosome in input fasta (after adding variation)
 		 - virus: name of integrated virus
 		 - viral breakpoints: a comma separated list of viral breakpoints which together indicate the integrated bases
 			adjacent pairs of breakpoints indicate portions of the virus that have been integrated
@@ -935,37 +1042,27 @@ class Integrations(list):
 		#pp.pprint(self.model)
 		
 		# dictionary will keep track of the number of bases previously integrated on each chromosome
-		previous_ints = {key:0 for key in self.host.keys()}
-		deleted_bases = {key:0 for key in self.host.keys()}
+		previous_ints = {key:0 for key in self.host.keys()} # length of previous integrations
+		deleted_bases_input_fasta = {key:0 for key in self.host.keys()} # deletions because of integrations
+		deleted_bases_original_fasta = {key:0 for key in self.host.keys()}
+		sim_to_original_offset = {key:0 for key in self.host.keys()} # add this to sim position to get original position (due to indels)
 		
 		self.__check_model()
 		self.sort()
 			
 		with open(filename, "w", newline='') as csvfile:
 			intwriter = csv.writer(csvfile, delimiter = '\t')
-			intwriter.writerow(['id', 'chr', 'hPos', 'hPos_input_fasta', 'leftStart', 'leftStop',  'rightStart', 'rightStop', 'hDeleted', 'virus', 'vBreakpoints', 'vOris', 'juncTypes', 'juncBases', 'juncLengths', 'whole', 'rearrangement', 'deletion', 'n_swaps', 'n_delete', 'in_indel'])
+			intwriter.writerow(['id', 'chr', 'hPos', 'hPos_input_fasta', 'leftStart', 'leftStop',  'rightStart', 'rightStop', 'hDeleted', 'hDelted_input_fasta', 'virus', 'vBreakpoints', 'vOris', 'juncTypes', 'juncBases', 'juncLengths', 'whole', 'rearrangement', 'deletion', 'n_swaps', 'n_delete'])
 			for i, integration in enumerate(self):
 				assert integration.pos is not None
 
 				# to calculate hPos, we need to account for variants introduced by simuG
-				h_pos = integration.pos
-				
-				# find all relevant indels (on the same chromosome and before this integration position)
-				if self.indel is not None:
-					rel_indels = [row for row in self.indel if integration.chr == row['ref_chr']]
-					rel_indels = [row for row in rel_indels if integration.pos >= int(row['sim_end'])]
-				
-					# is this integration in an indel?
-					in_indel = any([integration.pos >= int(row['sim_start']) and integration.pos <= int(row['sim_end']) for row in rel_indels])
-					
-					# net number of bases added/deleted
-					net_len = sum([len(row['sim_allele']) - len(row['ref_allele']) for row in rel_indels])
-					
-					# adjust position
-					h_pos += net_len
+				host_position_offset, host_deletion_offset	= self.__handle_indels(integration)
+				sim_to_original_offset[integration.chr] += host_position_offset
+				h_pos = integration.pos + sim_to_original_offset[integration.chr]
 				
 				# calculate start and stop position for this integration			
-				left_start = integration.pos + previous_ints[integration.chr] - deleted_bases[integration.chr]
+				left_start = integration.pos + previous_ints[integration.chr] - deleted_bases_input_fasta[integration.chr]
 				left_stop = left_start + integration.junc_props['n_junc'][0] 
 				
 				right_start = left_stop + len(integration.chunk.bases)
@@ -980,7 +1077,11 @@ class Integrations(list):
 					previous_ints[integration.chr] += integration.junc_props['n_junc'][1]
 				
 				# update deleted_bases
-				deleted_bases[integration.chr] += integration.junc_props['host_del_len']
+				deleted_bases_input_fasta[integration.chr] += integration.junc_props['host_del_len']
+				deleted_bases_original_fasta[integration.chr] += integration.host_deleted_original_fasta
+				
+				# indels in deleted region didn't happen, so we need to account for this in the position offset
+				sim_to_original_offset[integration.chr] -= host_deletion_offset
 
 				# format lists into comma-separated strings
 				breakpoints = ";".join([str(i) for i in integration.chunk.pieces])
@@ -999,6 +1100,7 @@ class Integrations(list):
 									right_start,
 									right_stop, 
 									integration.host_deleted,
+									integration.host_deleted_original_fasta,
 									integration.chunk.virus,
 									breakpoints,
 									oris,
@@ -1009,8 +1111,8 @@ class Integrations(list):
 									integration.chunk.chunk_props['n_swaps'] > 0,
 									integration.chunk.chunk_props['n_delete'] > 0,
 									integration.chunk.chunk_props['n_swaps'],
-									integration.chunk.chunk_props['n_delete'],
-									in_indel])
+									integration.chunk.chunk_props['n_delete']
+								])
 
 	def __str__(self):
 		return f"Viral integrations object with {len(self)} integrations of viral sequences {list(self.virus.keys())} into host chromosomes {list(self.host.keys())}"
