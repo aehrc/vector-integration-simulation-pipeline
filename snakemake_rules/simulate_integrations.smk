@@ -32,40 +32,41 @@ def get_host_parameter(wildcards, column_name):
 	exp_rows = sim_df.loc[(sim_df['experiment'] == wildcards.exp)]
 	return exp_rows.loc[(exp_rows['host_name'] == wildcards.sim_host).idxmax(), column_name]
 
-rule genome_variation:
-	input:  
-		host = lambda wildcards: {name:fasta for name, fasta in zip(sim_df.host_name, sim_df.host_fasta)}[wildcards.sim_host]
-	output:
-		r1_sim_fasta = "{outpath}/references/{exp}/simuG/{sim_host}.1.simseq.genome.fa",
-		vcf_snp = temp("{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.SNP.vcf"),
-		vcf_indel = temp("{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.INDEL.vcf"),
-		r1_map = "{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.map.txt"
-	container:
-		"docker://szsctt/simug:1"
-	resources:
-		mem_mb= lambda wildcards, attempt, input:get_mem(input, attempt, mult_factor=2, minimum=5000, maximum=50000),
-		time = lambda wildcards, attempt: ('30:00', '2:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
-		nodes = 1
-	wildcard_constraints:
-		sim_host = "|".join(set(sim_df.loc[:, 'host_name'])),
-	params:
-		prefix = lambda wildcards, output: f"-prefix {os.path.splitext(os.path.splitext(os.path.splitext(output.sim_fasta)[0])[0])[0]}",
-		snp_count = lambda wildcards: f"-snp_count {get_host_parameter(wildcards, 'snp_count')}",
-		indel_count = lambda wildcards: f"-indel_count {get_host_parameter(wildcards, 'indel_count')}",
-		#cnv_count = lambda wildcards: f"-cnv_count {get_host_parameter(wildcards, 'cnv_count')}",
-		#inversion_count = lambda wildcards: f"-inversion_count {get_host_parameter(wildcards, 'inversion_count')}",
-		#translocation_count = lambda wildcards: f"-translocation_count {get_host_parameter(wildcards, 'translocation_count')}",
-		seed = "-seed 202102231543"
-	shell:
-		"""
-		perl /var/work/simuG/simuG.pl -refseq {input.host} {params}
-		"""
+#rule genome_variation:
+#	input:  
+#		host = lambda wildcards: {name:fasta for name, fasta in zip(sim_df.host_name, sim_df.host_fasta)}[wildcards.sim_host]
+#	output:
+#		r1_sim_fasta = "{outpath}/references/{exp}/simuG/{sim_host}.1.simseq.genome.fa",
+#		vcf_snp = temp("{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.SNP.vcf"),
+#		vcf_indel = temp("{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.INDEL.vcf"),
+#		r1_map = "{outpath}/references/{exp}/simuG/{sim_host}.1.refseq2simseq.map.txt"
+#	container:
+#		"docker://szsctt/simug:1"
+#	resources:
+#		mem_mb= lambda wildcards, attempt, input:get_mem(input, attempt, mult_factor=2, minimum=5000, maximum=50000),
+#		time = lambda wildcards, attempt: ('30:00', '2:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
+#		nodes = 1
+#	wildcard_constraints:
+#		sim_host = "|".join(set(sim_df.loc[:, 'host_name'])),
+#	params:
+#		prefix = lambda wildcards, output: f"-prefix {os.path.splitext(os.path.splitext(os.path.splitext(output.r1_sim_fasta)[0])[0])[0]}",
+#		snp_count = lambda wildcards: f"-snp_count {get_host_parameter(wildcards, 'snp_count')}",
+#		indel_count = lambda wildcards: f"-indel_count {get_host_parameter(wildcards, 'indel_count')}",
+#		#cnv_count = lambda wildcards: f"-cnv_count {get_host_parameter(wildcards, 'cnv_count')}",
+#		#inversion_count = lambda wildcards: f"-inversion_count {get_host_parameter(wildcards, 'inversion_count')}",
+#		#translocation_count = lambda wildcards: f"-translocation_count {get_host_parameter(wildcards, 'translocation_count')}",
+#		seed = "-seed 202102231543"
+#	shell:
+#		"""
+#		perl /var/work/simuG/simuG.pl -refseq {input.host} {params}
+#		"""
 
 rule simulate_integrations:
 	input:  
 		virus =  lambda wildcards: get_parameter(wildcards, 'virus_fasta'),
-		host = lambda wildcards: expand(rules.genome_variation.output.r1_sim_fasta, sim_host = get_parameter(wildcards, 'host_name'), allow_missing=True),
-		r1_map = lambda wildcards: expand(rules.genome_variation.output.r1_map, sim_host = get_parameter(wildcards, 'host_name'), allow_missing=True),
+		host = lambda wildcards: get_parameter(wildcards, 'host_fasta')
+#		host = lambda wildcards: expand(rules.genome_variation.output.r1_sim_fasta, sim_host = get_parameter(wildcards, 'host_name'), allow_missing=True),
+#		r1_map = lambda wildcards: expand(rules.genome_variation.output.r1_map, sim_host = get_parameter(wildcards, 'host_name'), allow_missing=True),
 	output:
 		sim_fasta = temp("{outpath}/{exp}/sim_ints/{samp}.fa"),
 		sim_info = temp("{outpath}/{exp}/sim_ints/{samp}.int-info.tsv"),
@@ -98,11 +99,10 @@ rule simulate_integrations:
 		python3 scripts/insert_virus.py \
 		 --host {input.host} \
 		 --virus {input.virus} \
-		 --simug_snp_indel {input.r1_map} \
 		 --ints {output.sim_fasta} \
 		 --int_info {output.sim_info} \
 		 --epi_info {output.epi_info} \
 		 {params} \
 		 --verbose
 		"""
-
+#		 --simug_snp_indel {input.r1_map} \

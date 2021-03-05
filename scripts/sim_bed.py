@@ -14,7 +14,7 @@ def main(args):
 	parser.add_argument('--sim_info', '-i', help='Tab-separated output file with location of integrations', required=True)
 	parser.add_argument('--output', '-o', help='Output bed file', default='ints.bed')
 	args = parser.parse_args(args[1:])
-	
+		
 	with open(args.sim_info, 'r', newline='') as infile, open(args.output, 'w', newline='') as outfile:
 		inreader = csv.DictReader(infile, delimiter='\t')
 		outwriter = csv.writer(outfile, delimiter='\t')
@@ -47,6 +47,7 @@ def main(args):
 				# write right junction
 				#outwriter.writerow((chrom, pos+left_len+deleted, pos+left_len+deleted+right_len, '-'))
 				outwriter.writerow((chrom, pos+left_len+deleted, pos+left_len+deleted+right_len))
+
 	
 if __name__ == "__main__":
 	main(sys.argv)
