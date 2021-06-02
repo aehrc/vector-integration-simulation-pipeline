@@ -123,3 +123,48 @@ The main outputs of the pipeline are:
 1. Fasta file containing host sequence with integrated viral sequences (and episomes, if appropriate)
 2. Paired-end reads from `art_illumina` in fastq and sam format
 3. Text file containing location and properties of each integration, in a tab-separated format
+
+The text file with the properties of each integration ('int-info') has the following columns:
+
+ - id: a unique number for each integration
+ - chr: the name of the host reference chromosome/contig in which integration occurred
+ - hPos: position in the original host reference chromosome/contig at which integration occurred
+ - leftStart, leftStop: coordinates of the ambiguous bases (containing a gap or overlap if there is one) on the left side of the integration in the output fasta file.  This will only be the same as hPos for the first integration on each chromsome/contig
+ - rightStart, rightStop: same as leftStart, leftStop but for the right side of the integration
+ - hDeleted: number of bases deleted from the host chromosome/contig at the integration site.  Deleted bases occur after the right side of the integration
+ - hDelted_input_fasta: probably just ignore this column - it should be the same as hDeleted
+ - virus: name of viral reference from which integrated sequence was taken
+ - vBreakpoints: a list of the parts of the virus which were integrated.  For example [0, 1611] means that bases 0 through 1611 from the viral reference were integrated.  [1400, 1531];[1335, 1400] means that there was a rearrangement: bases 1400 through 1531 and bases 1335 through 1400 were inserted
+ - vOris: the orientation of each part of the virus listed in vBreakpoints, + for sense and - for antisense
+ - juncTypes: the type of the left and right junctions.  'clean' means there's nothing between the host and viral sequence, 'gap' means random bases were inserted at the jucntion, 'overlap' means that there was homology between the host and vector at the junction.  This is a comma-separated list with two elements - the first is the left junction, and the second is the right junction.
+ - juncBases: the sequences at the left and right junctions.  This is a comma separated list with two elements - the first is for the left junction and the second is for the right
+ - juncLengths: the number of bases involved in the left and right junctions.This is a comma separated list with two elements - the first is for the left junction and the second is for the right
+ - whole: True if the whole virus was integrated, False otherwise
+ - rearrangement: True if the integration involved a rearrangement (integration of two or more non-contiguous pieces of the viral reference), False otherwise
+ - deletion: True if the part of the virus integrated harbors a deletion, false otherwise
+ - n\_swaps: If there was a rearrangement, the number of times that pieces of the integrated part of the virus were swapped
+ - n\_delete: If there was a deletion, the number of pieces deleted from the integrated part of the virus
+
+After annotation with simulated reads, the following columns are added:
+
+ - left_chimeric: Chimeric reads that span the left junction
+ - right\_chimeric: Chimeric reads that span the left junction
+ - left\_discord: Read pairs which straddle the left junction, so there's one read aligned to host and one to virus
+ - right\_discord: Read pairs which straddle the right junction, so there's one read aligned to virus and one to host
+ - multiple\_discord: Read pairs which span multiple integration junctions, with one read in host and the other in virus/vector.  These should be called as integrations, but it's not clear what the coordinates of the integration should be.
+ - fake\_discord: read pairs where both reads map to either host or vector, but span more than one integration. In other words, read pairs where one both reads map to either host or vector, but are interrupted by a sequence of the other type. For example, a pair where one read maps to the virus of one integration, and the other to the virus of the next integration. These should not be called as integrations, but will appear to have a longer template length than expected when mapped
+ - discordant\_and\_chimeric: Read pairs which are both discordant (because one read maps to host, and the other to vector, although one of the reads may not be mapped in its entirety), but also one member of the pair is chimeric
+ 
+The text file with the properties of each episomal sequence has the following columns:
+
+- id: a unique number for each episome
+- virus: name of viral reference from which episomal sequence was taken
+- start, stop: coordinates of viral reference from which episomal sequence was taken
+- pieces: a list of the parts of the virus which are episomal.  For example [0, 1611] means that bases 0 through 1611 from the viral reference constitute the episome.  [1400, 1531];[1335, 1400] means that there was a rearrangement: the episome consists of bases 1400 through 1531 and bases 1335 through 1400 
+- oris:  the orientation of each part of the virus listed in pieces column, + for sense and - for antisense
+- is\_whole: True if the whole virus is episomal, False otherwise
+- is\_rearrange: True if the episome is rearranged (episome of two or more non-contiguous pieces of the viral reference), False otherwise
+- is\_deletion: True if the episome harbors a deletion, false otherwise
+- n\_swaps: If there was a rearrangement, the number of times that pieces of the episome were randomly swapped
+- n\_delete: If there was a deletion, the number of pieces deleted from the episome
+
