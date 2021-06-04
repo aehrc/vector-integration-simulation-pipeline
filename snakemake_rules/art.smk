@@ -1,4 +1,5 @@
 from os import path
+import math
 
 
 rule art:
@@ -43,11 +44,12 @@ rule convert:
 	container:
 		"docker://szsctt/bwa:1"
 	resources:
-		mem_mb= lambda wildcards, attempt: attempt * 5000,
+		mem_mb = lambda wildcards, attempt, input: max(min(int(math.ceil(input.size_mb) * attempt), 100000), 500),
 		time = lambda wildcards, attempt: ('30:00', '2:00:00', '24:00:00', '7-00:00:00')[attempt - 1],
 		nodes = 1
 	shell:
 		"""
+		rm -f {output.bam}*tmp*bam
 		samtools sort -o {output.bam} {input.sam}
 		samtools index {output.bam}
 		"""
