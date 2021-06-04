@@ -8,13 +8,6 @@ default_replicates = 3
 default_initial_seed = 1234567
 default_seed_increment = 5
 
-# genome variation parameters
-default_snp_count = 100
-default_indel_count = 10
-default_cnv_count = 3
-default_inversion_count = 1
-default_translocation_count = 0
-
 # integration parameters
 default_seed_increment = 1000
 default_int_num = [5]
@@ -74,13 +67,6 @@ def parse_config(config):
 		# initial random seed and increment
 		config = standard_checks_int(config, exp, 'initial_seed', default_initial_seed)
 		config = standard_checks_int(config, exp, 'seed_increment', default_seed_increment)
-		
-		# genome variation parameters
-		config = standard_checks_int(config, exp, 'snp_count', default_snp_count)
-		config = standard_checks_int(config, exp, 'indel_count', default_indel_count)		
-		config = standard_checks_int(config, exp, 'cnv_count', default_cnv_count)
-		config = standard_checks_int(config, exp, 'inversion_count', default_inversion_count)		
-		config = standard_checks_int(config, exp, 'translocation_count', default_translocation_count)
 
 		# integration parameters
 		config = standard_checks(config, exp, 'min_sep', default_min_sep, list, int) 
@@ -169,11 +155,6 @@ def parse_config(config):
 				 'host_fasta',
 				 'virus_fasta',
 				 'random_seed',
-				 'snp_count',
-				 'indel_count',
-				 'cnv_count',
-				 'inversion_count',
-				 'translocation_count',
 				 'sim_fa_filename',
 				 'sim_int_info_filename',
 				 'sim_epi_info_filename',
@@ -235,13 +216,6 @@ def parse_config(config):
 	
 			# random_seed
 			row.append(config[exp]['initial_seed'] + i * config[exp]['seed_increment'])
-			
-			# genome simulation parameters
-			row.append(config[exp]['snp_count'])		
-			row.append(config[exp]['indel_count'])	
-			row.append(config[exp]['cnv_count'])	
-			row.append(config[exp]['inversion_count'])	
-			row.append(config[exp]['translocation_count'])
 	
 			# sim_fa_filename
 			row.append(f"{config[exp]['out_directory']}/{exp}/sim_ints/{row[1]}.rep{row[2]}.fa")

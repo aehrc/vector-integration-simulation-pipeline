@@ -8,7 +8,7 @@ def bandpass(num, minimum, maximum):
 	return max(num, minimum)
 
 def get_mem(file_name_list, attempt, mult_factor=2, minimum=100, maximum=50000):
-	resource = int(sum([os.stat(file).st_size/1e6 for file in file_name_list])) * mult_factor * attempt
+	resource = int(sum([file.size / 1024 / 1024 for file in file_name_list])) * mult_factor * attempt
 	resource = min(maximum, resource)
 	return max(minimum, resource)
 
