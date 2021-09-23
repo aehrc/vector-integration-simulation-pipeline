@@ -1907,7 +1907,12 @@ class ViralChunk(dict):
 				self.stop = int(rng.integers(low = self.start + chunk_props['min_len'], 
 																			high = len(virus[self.virus].seq)
 																		)
-											 )	
+												)
+			
+			elif chunk_props['max_len'] == chunk_props['min_len']:
+				self.stop = self.start + chunk_props['max_len']
+
+			
 			else:	
 				self.stop = int(rng.integers(low = self.start + chunk_props['min_len'], 
 																			high = min(len(virus[self.virus].seq), 
