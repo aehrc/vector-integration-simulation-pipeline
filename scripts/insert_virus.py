@@ -91,6 +91,7 @@ def main(argv):
 	parser.add_argument('--model-check', help = 'check integration model every new integration', action="store_true")
 	parser.add_argument('--min-sep', help='minimum separation for integrations', type=int, default=default_min_sep)
 	parser.add_argument('--min-len', help='minimum length of integrated viral fragments', type=int, default=None)
+	parser.add_argument('--max-len', help='maximum length of integrated viral fragments', type=int, default=None)
 
 	args = parser.parse_args()
 	
@@ -113,7 +114,8 @@ def main(argv):
 		print("initialising a new Events object")
 
 	seqs = Events(args.host, args.virus, seed=args.seed, verbose = True, 
-								min_len = args.min_len, simug_snp_indel = args.simug_snp_indel)
+								min_len = args.min_len, max_len=args.max_len,
+								 simug_snp_indel = args.simug_snp_indel)
 	
 	# add integrations
 	seqs.add_integrations(probs, args.int_num, max_attempts, 
@@ -137,7 +139,7 @@ class Events(dict):
 	
 	def __init__(self, host_fasta_path, virus_fasta_path, 
 								fasta_extensions = ['.fa', '.fna', '.fasta'] , 
-								seed = 12345, verbose = False, min_len = None,
+								seed = 12345, verbose = False, min_len = None, max_len=None,
 								simug_snp_indel = None, simug_cnv = None, 
 								simug_inversion = None, simug_tranlocation = None):
 		"""
@@ -151,9 +153,12 @@ class Events(dict):
 		assert isinstance(min_len, int) or min_len is None
 		if min_len is not None:
 			assert min_len > 0
+		if max_len is not None:
+			assert max_len > 1
 		
 		self.verbose = verbose
 		self.min_len = min_len
+		self.max_len = max_len
 		
 		# check and import fasta files
 		if self.verbose is True:
@@ -197,7 +202,11 @@ class Events(dict):
 				raise ValueError(f"specified minimum length is more than the length of one of the input viruses")
 			if any([len(virus) == self.min_len for virus in self.virus.values()]):
 				print(f"warning: minimum length is equal to the length of one or more references - integrations involving these references will all be whole, regardless of p_whole")
-
+		
+		# check maximum length
+		if self.max_len is not None and self.min_len is not None:
+				if self.min_len > self.max_len:
+					raise ValueError("Minimum length cannot be greater than maximum")
 
 		if self.verbose is True:
 			print(f"imported virus fasta with {len(self.virus)} sequences:", flush=True)
@@ -258,7 +267,7 @@ class Events(dict):
 		self.check_junction_length(probs)
 			
 		# instantiate Integrations object
-		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep, self.min_len, self.indel)
+		self.ints = Integrations(self.host, self.virus, probs, self.rng, self.max_attempts, self.model_check, self.min_sep, self.min_len, self.max_len, self.indel)
 		
 		# add int_num integrations
 		if self.verbose is True:
@@ -416,7 +425,7 @@ class Integrations(list):
 	lambda_host_del - mean of poisson distribution of number of bases deleted from host genome at integration site
 
 	"""
-	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1, min_len=None, indel=None):
+	def __init__(self, host, virus, probs, rng, max_attempts=50, model_check=False, min_sep=1, min_len=None, max_len=None, indel=None):
 		"""
 		Function 
 		to initialise Integrations object
@@ -433,6 +442,11 @@ class Integrations(list):
 		assert isinstance(min_len, int) or min_len is None
 		if min_len is not None:
 			assert min_len > 0
+		assert isinstance(max_len, int) or max_len is None
+		if max_len is not None:
+			assert max_len > 1
+			if min_len is not None:
+				assert max_len >= min_len		
 		assert isinstance(indel, list) or indel is None
 		
 		# assign properties common to all integrations
@@ -444,6 +458,7 @@ class Integrations(list):
 		self.model_check = model_check
 		self.min_sep = min_sep
 		self.min_len = min_len
+		self.max_len = max_len
 		self.indel = indel
 		
 		# default values for probs
@@ -552,7 +567,7 @@ class Integrations(list):
 			counter += 1
 			if counter > self.max_attempts:
 				raise ValueError("too many attempts to set chunk properties")
-		assert len(chunk_props) == 5
+		assert len(chunk_props) == 6
 			
 		counter = 0
 		while True:
@@ -662,8 +677,9 @@ class Integrations(list):
 			- n_fragments: number of fragments into which ViralChunk should be split
 			- n_delete: number of fragments to delete from ViralChunk (should always leave at least two fragments after deletion)
 			- n_swaps: number of swaps to make when rearranging ViralChunk
-			- min_len: the minimum length of the viral chunk - optional (if not present, for integration will be set to
-							the number of overlap bases + 1, for episome will be set to 1
+			- min_len: the minimum length of the viral chunk - optional (if not present, for 
+			integration will be set to the number of overlap bases + 1, for episome will be set to 1
+			- max_len: the maxumum length of the viral chunk
 		"""
 		
 		chunk_props = {}
@@ -714,6 +730,7 @@ class Integrations(list):
 			
 		# set minimum length of chunk
 		chunk_props['min_len'] = self.min_len
+		chunk_props['max_len'] = self.max_len
 			
 		return chunk_props
 		
@@ -1130,7 +1147,7 @@ class Episomes(Integrations):
 	Since Integrations and Episomes use some similar methods, this class inherits from Integrations
 	in order to avoid duplication
 	"""
-	def __init__(self, virus, rng, probs, max_attempts = 50, min_len = None):
+	def __init__(self, virus, rng, probs, max_attempts = 50, min_len = None, max_len=None):
 		"""
 		initialises an empty Episomes list, storing the properties common to all episomes
 		"""
@@ -1143,6 +1160,11 @@ class Episomes(Integrations):
 			min_len = 1
 		else:
 			assert min_len > 0
+		assert isinstance(max_len, int) or max_len is None
+		if max_len is not None:
+			assert max_len > 1
+			if min_len is not None:
+				assert max_len >= min_len
 		
 	
 		# assign properties common to all episomes
@@ -1151,6 +1173,7 @@ class Episomes(Integrations):
 		self.rng = rng
 		self.max_attempts = max_attempts
 		self.min_len = min_len
+		self.max_len = max_len
 		
 		# default values for probs
 		self.set_probs_default('p_whole', default_p_whole)
@@ -1369,6 +1392,10 @@ class Integration(dict):
 			self.chunk_props['min_len'] = self.n_overlap_bases() + 1
 		if self.chunk_props['min_len'] < self.n_overlap_bases() + 1:
 			self.chunk_props['min_len'] = self.n_overlap_bases() + 1
+		
+		# need to check that minimum length is still greater than maximum length
+		if self.chunk_props['max_len'] < self.chunk_props['min_len']:
+			raise ValueError('The maximum length ({self.chunk_props["max_len"]}) is less than the length of the overlapped bases ({self.n_overlap_bases()}).  Please specify a longer maximum length or a smaller number for the mean of the number of bases involved in the junction.')
 		
 		# get viral chunk
 		self.chunk = ViralChunk(virus, 
@@ -1817,6 +1844,7 @@ class ViralChunk(dict):
 			- n_delete: number of fragments to delete from ViralChunk (should always leave at least two fragments after deletion)
 			- n_swaps: number of swaps to make when rearranging ViralChunk
 			- min_len: the minimum length of this chunk (integer greater than 1)
+			- max_len: the maxumum length of this chunk (None, or integer greater than min_len)
 		
 		the bases attribute of a ViralChunk consist of only the bases that are unique to the virus. 
 		So in the case of an Integration of a ViralChunk with a 'overlap' type junction,
@@ -1828,7 +1856,7 @@ class ViralChunk(dict):
 		assert len(virus) > 0
 
 		assert isinstance(chunk_props, dict)
-		assert len(chunk_props) == 5
+		assert len(chunk_props) == 6
 		
 		assert 'is_whole' in chunk_props
 		assert isinstance(chunk_props['is_whole'], bool)
@@ -1851,6 +1879,11 @@ class ViralChunk(dict):
 			chunk_props['min_len'] = 1
 		assert chunk_props['min_len'] > 0
 		
+		assert 'max_len' in chunk_props
+		assert isinstance(chunk_props['max_len'], int) or chunk_props['max_len'] is None
+		if chunk_props['max_len'] is not None and chunk_props['min_len'] is not None:
+			assert chunk_props['max_len'] >= chunk_props['min_len']
+		
 		# check that the minimum length specified is longer than all the viruses
 		# otherwise we might fail
 		if not all([chunk_props['min_len'] <= len(vir.seq) for vir in virus.values()]):
@@ -1868,8 +1901,19 @@ class ViralChunk(dict):
 			self.start = 0
 			self.stop = len(virus[self.virus])
 		elif self.chunk_props['is_whole'] is False:
+
 			self.start = int(rng.integers(low = 0, high = len(virus[self.virus].seq) - chunk_props['min_len']))
-			self.stop = int(rng.integers(low = self.start + chunk_props['min_len'], high = len(virus[self.virus].seq)))
+			if chunk_props['max_len'] is None:	
+				self.stop = int(rng.integers(low = self.start + chunk_props['min_len'], 
+																			high = len(virus[self.virus].seq)
+																		)
+											 )	
+			else:	
+				self.stop = int(rng.integers(low = self.start + chunk_props['min_len'], 
+																			high = min(len(virus[self.virus].seq), 
+																									self.start+chunk_props['max_len'])
+																		)
+											 )	
 		else:
 			raise ValueError("self.chunk_props['is_whole'] must be either True or False")
 			
