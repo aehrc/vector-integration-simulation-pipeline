@@ -1496,7 +1496,7 @@ class Integration(dict):
 		# get a list of host coordinates
 		host_coords = [segment['coords'] for segment in model[self.chr] if segment['origin'] == 'host']
 		
-		# TODO - enforce minimum separation
+		# enforce minimum separation
 		host_coords = [(coords[0] + min_sep, coords[1] - min_sep) for coords in host_coords]
 		
 		# ensure lengths are positive
@@ -1510,7 +1510,7 @@ class Integration(dict):
 		part = rng.choice(host_coords, p = lengths)
 		
 		# get a random postion from this part
-		return int(rng.choice(range(part[0], part[1])))	
+		return rng.integers(low = part[0], high = part[1], endpoint=True, dtype=int)
 		
 	def get_int_position(self, chr, rng, model, min_sep):
 		"""
