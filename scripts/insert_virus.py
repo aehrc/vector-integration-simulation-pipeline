@@ -1384,8 +1384,10 @@ class Integration(dict):
 		self.search_length_overlap = search_length_overlap
 		self.id = int_id
 	
-		# get random chromosome on which to do integration
-		self.chr = str(rng.choice(list(host.keys())))
+		# get random chromosome on which to do integration (weighted by chromosome length)
+		lens = [len(i) for i in host.values()]
+		lens = [i/sum(lens) for i in lens]
+		self.chr = str(rng.choice(list(host.keys()), p=lens))
 		
 		# set minimum length for viral chunk - longer than the number of bases involved in the junction
 		if self.chunk_props['min_len'] is None:
@@ -1394,8 +1396,9 @@ class Integration(dict):
 			self.chunk_props['min_len'] = self.n_overlap_bases() + 1
 		
 		# need to check that minimum length is still greater than maximum length
-		if self.chunk_props['max_len'] < self.chunk_props['min_len']:
-			raise ValueError('The maximum length ({self.chunk_props["max_len"]}) is less than the length of the overlapped bases ({self.n_overlap_bases()}).  Please specify a longer maximum length or a smaller number for the mean of the number of bases involved in the junction.')
+		if self.chunk_props['max_len'] is not None:
+			if self.chunk_props['max_len'] < self.chunk_props['min_len']:
+				raise ValueError('The maximum length ({self.chunk_props["max_len"]}) is less than the length of the overlapped bases ({self.n_overlap_bases()}).  Please specify a longer maximum length or a smaller number for the mean of the number of bases involved in the junction.')
 		
 		# get viral chunk
 		self.chunk = ViralChunk(virus, 
