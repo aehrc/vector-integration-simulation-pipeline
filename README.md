@@ -76,7 +76,7 @@ As outlined in the [*QuickStart*](https://github.com/aehrc/vector-integration-si
 
 ## Config file
 
-Specify all inputs and options in a config file, which is provided to `snakemake`.  An example config file can be found at `test/config/test.yml`.
+Specify all inputs and options in a config file, which is provided to `snakemake`.  An example config file can be found at `test/config/simulation.yml`.
 
 The config file is organised into datasets - in the example above, there is one dataset `test`.  A config file should have one or more datasets. The results for each dataset will be output in a directory with the same name as the dataset (`test` in the case of the supplied config).
 
