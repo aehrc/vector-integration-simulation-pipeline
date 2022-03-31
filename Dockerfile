@@ -46,3 +46,5 @@ ADD Snakefile /opt/intvi_simulation/Snakefile
 ADD test /opt/intvi_simulation/test
 
 WORKDIR /opt/intvi_simulation
+
+CMD test/runMe.sh
