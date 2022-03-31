@@ -32,6 +32,7 @@ ADD run_singularity.sh /opt/simvi/run_singularity.sh
 
 # add test files
 ADD test /opt/simvi/test
+RUN mkdir /opt/simvi/test/out
 
 WORKDIR /opt/simvi
 
