@@ -4,7 +4,7 @@ A [`snakemake`](https://snakemake.readthedocs.io/en/stable/) workflow for simula
 
 ## Quickstart
 
-The repo includes a host and viral reference for testing your installation. To run this test, you will need either `conda`, `docker` or `singularity`.
+The repo includes a host and viral reference for testing your installation. To run this test, you will need to have one of [`conda`](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html), [`docker`](https://docs.docker.com/get-docker/) or [`singularity`](https://sylabs.io/guides/3.5/user-guide/quick_start.html) installed.
 
 ### Conda
 
