@@ -4,26 +4,59 @@ Scripts and snakemake workflow for simulating integration of a virus/vector into
 
 ## Quickstart
 
-The quickest way to get started is to use the docker container, which contains all dependencies, with either docker or singularity.  To run using the example data, use:
+The repo includes a host and viral reference for testing your installation. To run this test, you will need either `conda`, `docker` or `singularity`.
+
+### Conda
+
+If you have [`conda`](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) installed, you can run the pipeline with `snakemake`, which automatically downloads dependencies using `conda`.
+
+```
+# clone git repo
+git clone https://github.com/aehrc/vector-integration-simulation-pipeline.git
+cd vector-integration-simulation-pipeline
+
+# create conda environment called 'snakemake' containing snakemake
+conda create -n snakemake -c conda-forge -c bioconda snakemake -y
+conda activate snakemake
+
+# run with test data
+snakemake --configfile test/config/simulation.yml --jobs 1 --use-conda --conda-frontend conda
+```
+
+You can find out more about snakemake options in the [snakemake documentation](https://snakemake.readthedocs.io/en/stable/executing/cli.html). 
+
+To run with your own host and viral references, you will need to specify these in the config file (see below).
+
+### Container
+
+Another way to run is using the docker container, which contains all dependencies, with either docker or singularity.  To run using the example data, use:
 
 ```
 docker run szsctt/simvi:latest
 ```
 
-Alternativley, if you have `[conda]`(https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) installed, you can use `snakemake` directly, which automatically downloads dependencies using `conda`.
+To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
 
 ```
-conda create -n snakemake -c conda-forge -c bioconda snakemake -y
-conda activate snakemake
-snakemake --configfile test/config/simulation.yml --jobs 1 --use-conda --conda-frontend conda
+docker run --rm -it -v ${PWD}/test_results:/opt/simvi/test/out szsctt/simvi:master
 ```
 
-You can find out more about snakemake options in the [snakemake documentation](https://snakemake.readthedocs.io/en/stable/executing/cli.html).
+The results should appear in a directory created in the current working directory called `test_results`.  Compare these results to those in the directory `example_results`.
+
+To run with your own host and viral references, you will need to specify these in the config file (see below), and bind-mount the config file and the references into the container.
+
+It's also possible to run the container with `singularity` instead of `docker`:
+
+```
+singularity pull simvi.sif docker://szsctt/simvi:master
+
+singularity exec simvi.sif snakemake 
+```
 
 ## Overview
 
-In order to simulate data, the snakemake will:
-1. Parses the config file to generate all combinations of the specified paramters.  Each combination is a 'condition', and each condition has one or more 'replicates'.  All replicates and conditions have a different random seed.
+In order to simulate data, snakemake will:
+1. Parses the config file to generate all combinations of the specified paramters.  Each combination of parameters is a 'condition', and each condition has one or more 'replicates'.  All replicates and conditions have a different random seed.
 2. Simulates integration using the `python3` script `scripts/insert_virus.py`.  This script outputs a `fasta` file consisting of the host with viral sequences inserted, and two files describing the location and properties of the integrated virus and episomes
 3. `art_illumina` is used to simulate paried-end reads based on the `fasta` file from the previous step
 4. A script `scripts/annotate_reads.py` annotates the reads crossing host/viral junctions for each integration
@@ -32,17 +65,14 @@ For each dataset, the reads can be found in the output directory under `sim_read
 
 ## Dependencies
 
-Execution requires `snakemake` and either `singularity` (recommended) or `conda` to supply other dependencies.  If running with the `--use-singularity` flag, you may need to bind-mount the directories containing data and ouputs via the `--singularity-args` flag (eg `--singularity-args '-B /path/to/data -B /path/to/output'`).
+As outlined in the *QuickStart* section above, running the pipeline requires either `snakemake` and `conda`/`mamba`, or `docker`/`singularity`.  If using `conda`, other dependencies are automatically downloaded by snakemake (using the `--use-conda`) argument using the environment files in the `envs` directory.  If using the container with `docker`/`singularity`, dependences are already installed inside the container.
 
-## Test script
 
-To run a demo, use `test/runMe.sh`.  Note that this script requires the user to have a conda environment called `snakemake`, with `snakemake` installed, and a modulefile called `singularity`.  Adjust accordingly if your setup is not the same.
+## Config file
 
-## Running
+Specify all inputs and options in a config file, which is provided to snakemake.  An example config file can be found at `test/config/test.yml`.
 
-Specify all inputs in a config file, which is provided to snakemake.  An example config file can be found at `test/config/test.yml`.
-
-The config file is organised into datasets - in the example above, there is one dataset `test`.  A config file should have one or more datasets.
+The config file is organised into datasets - in the example above, there is one dataset `test`.  A config file should have one or more datasets. The results for each dataset will be output in a directory with the same name as the dataset (`test` in the case of the supplied config).
 
 If you use docker or singularity to run the pipeline with your own references, make sure to [bind-mount](https://docs.docker.com/storage/bind-mounts/) your data and output directories into the container, and that any paths in your config file are correct inside the container.
 
@@ -54,7 +84,7 @@ Specify the output directory with the key `out_directory`.  Output files can be 
 
 #### Host, viral references
 
-Use the keys `hosts` and `viruses` to specify a dict of host and viruses, respectivley, in which the keys in each dict are a name for that reference, and the value is the path (absolute or relative to the snakefile) to that reference.  
+Use the keys `hosts` and `viruses` to specify a dict of host and viruses, respectivley, in which the keys in each dict are a name for that reference, and the value is the path (absolute or relative to the snakefile) to that reference in `fasta` format.  
 
 #### Replicates
 
