@@ -23,7 +23,7 @@ RUN apt-get update --fix-missing && apt-get install -y wget bzip2 ca-certificate
 # install conda stuff
 ADD scripts/consolidate_envs.py /opt/simvi/scripts/
 ADD envs /opt/simvi/envs/
-RUN micromamba install -n base -c anaconda pip pyyaml=5.3 -y &&\
+RUN micromamba install -n base -c anaconda pip pyyaml=5.3 python=3 -y &&\
 	python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/simvi.yml
 	
 RUN micromamba env update -n base -f /opt/simvi/envs/simvi.yml &&\
