@@ -24,8 +24,9 @@ RUN apt-get update --fix-missing && apt-get install -y wget bzip2 ca-certificate
 ADD scripts/consolidate_envs.py /opt/simvi/scripts/
 ADD envs /opt/simvi/envs/
 RUN micromamba install -n base -c anaconda pip pyyaml=5.3 -y &&\
-	python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/sim.yml &&\
-	micromamba env update -n base -f /opt/simvi/envs/sim.yml &&\
+	python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/sim.yml 
+	
+RUN micromamba env update -n base -f /opt/simvi/envs/sim.yml &&\
 	micromamba clean --all -y 	
 
 # include simvi scripts, etc
