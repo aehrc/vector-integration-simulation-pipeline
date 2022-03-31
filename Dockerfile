@@ -16,17 +16,12 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 ENV DEBIAN_FRONTEND noninteractive
 RUN export DEBIAN_FRONTEND
 
-RUN apt-get update --fix-missing && apt-get install -y wget bzip2 ca-certificates \
-    libglib2.0-0 libxext6 libsm6 libxrender1 \
-    git 
-
 # install conda stuff
 ADD scripts/consolidate_envs.py /opt/simvi/scripts/
 ADD envs /opt/simvi/envs/
 RUN micromamba install -n base -c anaconda pip pyyaml=5.3 python=3 -y &&\
-	python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/simvi.yml
-	
-RUN micromamba env update -n base -f /opt/simvi/envs/simvi.yml &&\
+	/opt/conda/bin/python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/simvi.yml &&\
+	micromamba env update -n base -f /opt/simvi/envs/simvi.yml -y &&\
 	micromamba clean --all -y 	
 
 # include simvi scripts, etc
