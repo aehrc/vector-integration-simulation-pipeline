@@ -28,6 +28,7 @@ RUN micromamba install -n base -c anaconda pip pyyaml=5.3 python=3 -y &&\
 ADD scripts /opt/simvi/scripts/
 ADD snakemake_rules /opt/simvi/snakemake_rules
 ADD Snakefile /opt/simvi/Snakefile
+ADD run_singularity.sh /opt/simvi/run_singularity.sh
 
 # add test files
 ADD test /opt/simvi/test
