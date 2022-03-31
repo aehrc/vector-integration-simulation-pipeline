@@ -1,6 +1,6 @@
 # Viral integration simulation
 
-A `snakemake` workflow for simulating integration of a virus/vector into a host.
+A [`snakemake`](https://snakemake.readthedocs.io/en/stable/) workflow for simulating integration of a virus/vector into a host.
 
 ## Quickstart
 
@@ -52,7 +52,7 @@ simvi.sif \
 /opt/simvi/run_singularity.sh --configfile /opt/simvi/test/config/simulation.yml --jobs 1
 ```
 
-You can also give additional arugments which will be passed to snakemake.
+You can also give additional arugments which will be passed to `snakemake`.
 
 Note that since singularity containers are read-only, we need to also bind-mount a folder for snakemake to write to (in this case, `/opt/simvi/.snakemake` inside the container to `${PWD}/test_results/.snakemake` outside the container).
 
