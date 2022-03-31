@@ -1,6 +1,6 @@
 # Viral integration simulation
 
-Scripts and snakemake workflow for simulating integration of a virus/vector into a host.
+A `snakemake` workflow for simulating integration of a virus/vector into a host.
 
 ## Quickstart
 
@@ -27,7 +27,7 @@ You can find out more about snakemake options in the [snakemake documentation](h
 
 To run with your own host and viral references, you will need to specify these in the config file (see below).
 
-### Container
+### Container (`docker` or `singularity`)
 
 Another way to run is using the docker container, which contains all dependencies, with either docker or singularity.  To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
 
@@ -39,18 +39,22 @@ The results should appear in a directory created in the current working director
 
 To run with your own host and viral references, you will need to specify these in the config file (see below), and bind-mount the config file and the references into the container.
 
-It's also possible to run the container with `singularity` instead of `docker`:
+It's also possible to run the container with `singularity` instead of `docker`, which requires slightly different [bind-mounts](https://sylabs.io/guides/3.5/user-guide/bind_paths_and_mounts.html):
 
 ```
 singularity pull simvi.sif docker://szsctt/simvi:latest
 
-mkdir test_results
+mkdir -p test_results/.snakemake
 singularity exec \
 -B ${PWD}/test_results:/opt/simvi/test/out \
--B ${PWD}/test_results:/opt/simvi/.snakemake \
+-B ${PWD}/test_results/.snakemake:/opt/simvi/.snakemake \
 simvi.sif \
 /opt/simvi/run_singularity.sh --configfile /opt/simvi/test/config/simulation.yml --jobs 1
 ```
+
+You can also give additional arugments which will be passed to snakemake.
+
+Note that since singularity containers are read-only, we need to also bind-mount a folder for snakemake to write to (in this case, `/opt/simvi/.snakemake` inside the container to `${PWD}/test_results/.snakemake` outside the container).
 
 ## Overview
 
