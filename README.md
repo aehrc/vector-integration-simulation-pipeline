@@ -143,18 +143,18 @@ The text file with the properties of each integration ('*int-info.tsv') has the 
  - `whole`: True if the whole virus was integrated, False otherwise
  - `rearrangement`: True if the integration involved a rearrangement (integration of two or more non-contiguous pieces of the viral reference), False otherwise
  - `deletion`: True if the part of the virus integrated harbors a deletion, false otherwise
- - `n\_swaps`: If there was a rearrangement, the number of times that pieces of the integrated part of the virus were swapped
- - `n\_delete`: If there was a deletion, the number of pieces deleted from the integrated part of the virus
+ - `n_swaps`: If there was a rearrangement, the number of times that pieces of the integrated part of the virus were swapped
+ - `n_delete`: If there was a deletion, the number of pieces deleted from the integrated part of the virus
 
 After annotation with simulated reads, the following columns are added  ('*int-info.annotated.tsv'):
 
  - `left_chimeric`: Read IDs of the chimeric reads that span the left junction
- - `right\_chimeric`: Read IDs of the  chimeric reads that span the left junction
- - `left\_discord`: Read pairs which straddle the left junction, so there's one read aligned to host and one to virus
- - `right\_discord`: Read pairs which straddle the right junction, so there's one read aligned to virus and one to host
- - `multiple\_discord`: Read pairs which span multiple integration junctions, with one read in host and the other in virus/vector.  These should be called as integrations, but it's not clear what the coordinates of the integration should be.
- - `fake\_discord`: read pairs where both reads map to either host or vector, but span more than one integration. In other words, read pairs where one both reads map to either host or vector, but are interrupted by a sequence of the other type. For example, a pair where one read maps to the virus of one integration, and the other to the virus of the next integration. These should not be called as integrations, but will appear to have a longer template length than expected when mapped
- - `discordant\_and\_chimeric`: Read pairs which are both discordant (because one read maps to host, and the other to vector, although one of the reads may not be mapped in its entirety), but also one member of the pair is chimeric
+ - `right_chimeric`: Read IDs of the  chimeric reads that span the left junction
+ - `left_discord`: Read pairs which straddle the left junction, so there's one read aligned to host and one to virus
+ - `right_discord`: Read pairs which straddle the right junction, so there's one read aligned to virus and one to host
+ - `multiple_discord`: Read pairs which span multiple integration junctions, with one read in host and the other in virus/vector.  These should be called as integrations, but it's not clear what the coordinates of the integration should be.
+ - `fake_discord`: read pairs where both reads map to either host or vector, but span more than one integration. In other words, read pairs where one both reads map to either host or vector, but are interrupted by a sequence of the other type. For example, a pair where one read maps to the virus of one integration, and the other to the virus of the next integration. These should not be called as integrations, but will appear to have a longer template length than expected when mapped
+ - `discordant_and_chimeric`: Read pairs which are both discordant (because one read maps to host, and the other to vector, although one of the reads may not be mapped in its entirety), but also one member of the pair is chimeric
  
 The text file with the properties of each episomal sequence ('*epi-info.tsv') has the following columns:
 
@@ -163,9 +163,9 @@ The text file with the properties of each episomal sequence ('*epi-info.tsv') ha
 - `start`, `stop`: coordinates of viral reference from which episomal sequence was taken
 - `pieces`: a list of the parts of the virus which are episomal.  For example [0, 1611] means that bases 0 through 1611 from the viral reference constitute the episome.  [1400, 1531];[1335, 1400] means that there was a rearrangement: the episome consists of bases 1400 through 1531 and bases 1335 through 1400 
 - `oris`:  the orientation of each part of the virus listed in pieces column, + for sense and - for antisense
-- `is\_whole`: True if the whole virus is episomal, False otherwise
-- `is\_rearrange`: True if the episome is rearranged (episome of two or more non-contiguous pieces of the viral reference), False otherwise
-- `is\_deletion`: True if the episome harbors a deletion, false otherwise
-- `n\_swaps`: If there was a rearrangement, the number of times that pieces of the episome were randomly swapped
-- `n\_delete`: If there was a deletion, the number of pieces deleted from the episome
+- `is_whole`: True if the whole virus is episomal, False otherwise
+- `is_rearrange`: True if the episome is rearranged (episome of two or more non-contiguous pieces of the viral reference), False otherwise
+- `is_deletion`: True if the episome harbors a deletion, false otherwise
+- `n_swaps`: If there was a rearrangement, the number of times that pieces of the episome were randomly swapped
+- `n_delete`: If there was a deletion, the number of pieces deleted from the episome
 
