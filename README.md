@@ -29,10 +29,13 @@ To run with your own host and viral references, you will need to specify these i
 
 ### Container (`docker` or `singularity`)
 
-Another way to run is using the docker container, which contains all dependencies, with either docker or singularity.  To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
+Another way to run is using the `docker` container, which contains all dependencies, with either `docker` or `singularity`.  To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
 
 ```
-docker run --rm -it -v ${PWD}/test_results:/opt/simvi/test/out szsctt/simvi:latest
+docker run \
+--rm -it \
+-v ${PWD}/test_results:/opt/simvi/test/out szsctt/simvi:latest \
+snakemake --jobs 1 --configfile test/config/simulation.yml
 ```
 
 The results should appear in a directory created in the current working directory called `test_results`.  Compare these results to those in the directory `example_results`.
@@ -58,7 +61,7 @@ Note that since singularity containers are read-only, we need to also bind-mount
 
 ## Overview
 
-In order to simulate data, snakemake will:
+In order to simulate data, `snakemake` will:
 1. Parses the config file to generate all combinations of the specified paramters.  Each combination of parameters is a 'condition', and each condition has one or more 'replicates'.  All replicates and conditions have a different random seed.
 2. Simulates integration using the `python3` script `scripts/insert_virus.py`.  This script outputs a `fasta` file consisting of the host with viral sequences inserted, and two files describing the location and properties of the integrated virus and episomes
 3. `art_illumina` is used to simulate paried-end reads based on the `fasta` file from the previous step
@@ -68,22 +71,22 @@ For each dataset, the reads can be found in the output directory under `sim_read
 
 ## Dependencies
 
-As outlined in the *QuickStart* section above, running the pipeline requires either `snakemake` and `conda`/`mamba`, or `docker`/`singularity`.  If using `conda`, other dependencies are automatically downloaded by `snakemake` (using the `--use-conda`) argument using the environment files in the `envs` directory.  If using the container with `docker`/`singularity`, dependences are already installed inside the container.
+As outlined in the [*QuickStart*](https://github.com/aehrc/vector-integration-simulation-pipeline/edit/master/README.md#quickstart) section above, running the pipeline requires either `snakemake` and `conda`/`mamba`, or `docker`/`singularity`.  If using `conda`, other dependencies are automatically downloaded by `snakemake` (using the `--use-conda`) argument using the environment files in the `envs` directory.  If using the container with `docker`/`singularity`, dependences are already installed inside the container.
 
 
 ## Config file
 
-Specify all inputs and options in a config file, which is provided to snakemake.  An example config file can be found at `test/config/test.yml`.
+Specify all inputs and options in a config file, which is provided to `snakemake`.  An example config file can be found at `test/config/test.yml`.
 
 The config file is organised into datasets - in the example above, there is one dataset `test`.  A config file should have one or more datasets. The results for each dataset will be output in a directory with the same name as the dataset (`test` in the case of the supplied config).
 
-If you use docker or singularity to run the pipeline with your own references, make sure to [bind-mount](https://docs.docker.com/storage/bind-mounts/) your data and output directories into the container, and that any paths in your config file are correct inside the container.
+If you use `docker` or `singularity` to run the pipeline with your own references, make sure to [bind-mount](https://docs.docker.com/storage/bind-mounts/) your data and output directories into the container, and that any paths in your config file are correct inside the container.
 
 For each dataset, the following parameters should be specified in the config file.
 
 #### Output directory
 
-Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute, or relative to the snakefile.
+Specify the output directory with the key `out_directory`.  Output files can be found in this directory, under the dataset name.  The path should be either absolute, or relative to the directory in which you run the workflow (usually the directory which you cloned the repo into).  If you are using the container version, the `Snakefile` is located at `/opt/simvi/Snakefile`.
 
 #### Host, viral references
 
