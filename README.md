@@ -2,6 +2,24 @@
 
 Scripts and snakemake workflow for simulating integration of a virus/vector into a host.
 
+## Quickstart
+
+The quickest way to get started is to use the docker container, which contains all dependencies, with either docker or singularity.  To run using the example data, use:
+
+```
+docker run szsctt/simvi:latest
+```
+
+Alternativley, if you have `[conda]`(https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) installed, you can use `snakemake` directly, which automatically downloads dependencies using `conda`.
+
+```
+conda create -n snakemake -c conda-forge -c bioconda snakemake -y
+conda activate snakemake
+snakemake --configfile test/config/simulation.yml --jobs 1 --use-conda --conda-frontend conda
+```
+
+You can find out more about snakemake options in the [snakemake documentation](https://snakemake.readthedocs.io/en/stable/executing/cli.html).
+
 ## Overview
 
 In order to simulate data, the snakemake will:
@@ -12,10 +30,9 @@ In order to simulate data, the snakemake will:
 
 For each dataset, the reads can be found in the output directory under `sim_reads`, and the information about the integrations can be found under `sim_ints.`
 
-
 ## Dependencies
 
-Execution requires `snakemake` and either `singularity` (recommended) or `conda` (envs may be out of date) to supply other dependencies.  If running with the `--use-singularity` flag, you may need to bind-mount the directories containing data and ouputs via the `--singularity-args` flag (eg `--singularity-args '-B /path/to/data -B /path/to/output'`).
+Execution requires `snakemake` and either `singularity` (recommended) or `conda` to supply other dependencies.  If running with the `--use-singularity` flag, you may need to bind-mount the directories containing data and ouputs via the `--singularity-args` flag (eg `--singularity-args '-B /path/to/data -B /path/to/output'`).
 
 ## Test script
 
