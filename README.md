@@ -29,16 +29,10 @@ To run with your own host and viral references, you will need to specify these i
 
 ### Container
 
-Another way to run is using the docker container, which contains all dependencies, with either docker or singularity.  To run using the example data, use:
+Another way to run is using the docker container, which contains all dependencies, with either docker or singularity.  To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
 
 ```
-docker run szsctt/simvi:latest
-```
-
-To get the results from inside the container, you will need to [bind-mount](https://docs.docker.com/storage/bind-mounts/) the directory where you would like the results to be written when you run the container.  For example:
-
-```
-docker run --rm -it -v ${PWD}/test_results:/opt/simvi/test/out szsctt/simvi:master
+docker run --rm -it -v ${PWD}/test_results:/opt/simvi/test/out szsctt/simvi:latest
 ```
 
 The results should appear in a directory created in the current working directory called `test_results`.  Compare these results to those in the directory `example_results`.
@@ -48,9 +42,14 @@ To run with your own host and viral references, you will need to specify these i
 It's also possible to run the container with `singularity` instead of `docker`:
 
 ```
-singularity pull simvi.sif docker://szsctt/simvi:master
+singularity pull simvi.sif docker://szsctt/simvi:latest
 
-singularity exec simvi.sif snakemake 
+mkdir test_results
+singularity exec \
+-B ${PWD}/test_results:/opt/simvi/test/out \
+-B ${PWD}/test_results:/opt/simvi/.snakemake \
+simvi.sif \
+/opt/simvi/run_singularity.sh --configfile /opt/simvi/test/config/simulation.yml --jobs 1
 ```
 
 ## Overview
@@ -65,7 +64,7 @@ For each dataset, the reads can be found in the output directory under `sim_read
 
 ## Dependencies
 
-As outlined in the *QuickStart* section above, running the pipeline requires either `snakemake` and `conda`/`mamba`, or `docker`/`singularity`.  If using `conda`, other dependencies are automatically downloaded by snakemake (using the `--use-conda`) argument using the environment files in the `envs` directory.  If using the container with `docker`/`singularity`, dependences are already installed inside the container.
+As outlined in the *QuickStart* section above, running the pipeline requires either `snakemake` and `conda`/`mamba`, or `docker`/`singularity`.  If using `conda`, other dependencies are automatically downloaded by `snakemake` (using the `--use-conda`) argument using the environment files in the `envs` directory.  If using the container with `docker`/`singularity`, dependences are already installed inside the container.
 
 
 ## Config file
