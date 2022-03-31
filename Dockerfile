@@ -2,10 +2,10 @@
 
 FROM ubuntu:20.04
 
-#  $ docker build . -t szsctt/intvi_sim:latest -t szsctt/intvi_sim:1
-#  $ docker run --rm -it szsctt/intvi_sim:latest /bin/bash
-#  $ docker push szsctt/intvi_sim:latest
-#  $ docker push szsctt/intvi_sim:1
+#  $ docker build . -t szsctt/simvi:latest -t szsctt/simvi:1
+#  $ docker run --rm -it szsctt/simvi:latest /bin/bash
+#  $ docker push szsctt/simvi:latest
+#  $ docker push szsctt/simvi:1
 
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -30,21 +30,21 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 ENV PATH /opt/conda/bin:$PATH
 
 # install conda stuff
-ADD scripts/consolidate_envs.py /opt/intvi_simulation/scripts/
-ADD envs /opt/intvi_simulation/envs/
+ADD scripts/consolidate_envs.py /opt/simvi/scripts/
+ADD envs /opt/simvi/envs/
 RUN /opt/conda/bin/conda install -n base -c anaconda pip pyyaml=5.3 -y &&\
-	python3 /opt/intvi_simulation/scripts/consolidate_envs.py /opt/intvi_simulation/envs/*yml /opt/intvi_simulation/envs/sim.yml &&\
-	/opt/conda/bin/conda env update -n base -f /opt/intvi_simulation/envs/sim.yml &&\
+	python3 /opt/simvi/scripts/consolidate_envs.py /opt/simvi/envs/*yml /opt/simvi/envs/sim.yml &&\
+	/opt/conda/bin/conda env update -n base -f /opt/simvi/envs/sim.yml &&\
 	/opt/conda/bin/conda clean --all -y 	
 
-# include intvi_simulation scripts, etc
-ADD scripts /opt/intvi_simulation/scripts/
-ADD snakemake_rules /opt/intvi_simulation/snakemake_rules
-ADD Snakefile /opt/intvi_simulation/Snakefile
+# include simvi scripts, etc
+ADD scripts /opt/simvi/scripts/
+ADD snakemake_rules /opt/simvi/snakemake_rules
+ADD Snakefile /opt/simvi/Snakefile
 
 # add test files
-ADD test /opt/intvi_simulation/test
+ADD test /opt/simvi/test
 
-WORKDIR /opt/intvi_simulation
+WORKDIR /opt/simvi
 
 CMD test/runMe.sh
