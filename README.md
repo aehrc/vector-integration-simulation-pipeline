@@ -133,7 +133,7 @@ The text file with the properties of each integration ('*int-info.tsv') has the 
  - `leftStart`, `leftStop`: coordinates of the ambiguous bases (containing a gap or overlap if there is one) on the left side of the integration in the output fasta file.  This will only be the same as `hPos` for the first integration on each chromsome/contig
  - `rightStart`, `rightStop`: same as `leftStart`, `leftStop` but for the right side of the integration
  - `hDeleted`: number of bases deleted from the host chromosome/contig at the integration site.  Deleted bases occur after the right side of the integration
- - `hDelted_input_fasta`: probably just ignore this column - it should be the same as `hDeleted`
+ - `hDeleted_input_fasta`: probably just ignore this column - it should be the same as `hDeleted`
  - `virus`: name of viral reference from which integrated sequence was taken
  - `vBreakpoints`: a list of the parts of the virus which were integrated.  For example [0, 1611] means that bases 0 through 1611 from the viral reference were integrated.  [1400, 1531];[1335, 1400] means that there was a rearrangement: bases 1400 through 1531 and bases 1335 through 1400 were inserted
  - `vOris`: the orientation of each part of the virus listed in vBreakpoints, + for sense and - for antisense
