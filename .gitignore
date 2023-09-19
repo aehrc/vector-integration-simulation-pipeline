@@ -5,3 +5,7 @@ snakemake_rules/__pycache__/*
 test_scoring_data
 *tsv
 *fa
+__pycache__/
+.vscode/settings.json
+scripts/__pycache__/
+test/__pycache__/
