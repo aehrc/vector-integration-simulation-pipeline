@@ -19,6 +19,7 @@ jobs:
       with:
         generate-run-shell: true
         environment-file: envs/simvi.yml
+        environment-name: base
     - name: pytest
       run: |
         pytest --version
