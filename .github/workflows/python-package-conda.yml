@@ -17,7 +17,7 @@ jobs:
     - uses: mamba-org/setup-micromamba@v1
       with:
         generate-run-shell: true
-        environment-file: environment.yml
+        environment-file: envs/simvi.yml
     - run: |
         pytest --version
         pytest
