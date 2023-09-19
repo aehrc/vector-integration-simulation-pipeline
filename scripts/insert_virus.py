@@ -35,7 +35,6 @@ from sys import argv
 from os import path
 import numpy as np
 import scipy
-import pdb 
 import csv
 import re
 import pprint
@@ -138,7 +137,6 @@ class Events(dict):
 	"""
 	
 	def __init__(self, host_fasta_path, virus_fasta_path, 
-								fasta_extensions = ['.fa', '.fna', '.fasta'] , 
 								seed = 12345, verbose = False, min_len = None, max_len=None,
 								simug_snp_indel = None, simug_cnv = None, 
 								simug_inversion = None, simug_tranlocation = None):
@@ -147,8 +145,8 @@ class Events(dict):
 		"""
 		
 		# expectations for inputs
-		assert isinstance(fasta_extensions, list)
 		assert isinstance(seed, int)
+		assert seed > 0
 		assert isinstance(verbose, bool)
 		assert isinstance(min_len, int) or min_len is None
 		if min_len is not None:
@@ -165,7 +163,7 @@ class Events(dict):
 			print("importing host fasta", flush=True)
 	
 		# read host fasta - use index which doesn't load sequences into memory because host is large genome
-		if self.checkFastaExists(host_fasta_path, fasta_extensions):
+		if self.checkFastaExists(host_fasta_path):
 			self.host = SeqIO.to_dict(SeqIO.parse(host_fasta_path, 'fasta', alphabet=unambiguous_dna))
 		else:
 			raise OSError("Could not open host fasta")
@@ -177,7 +175,7 @@ class Events(dict):
 				print(f"\thost chromosome '{key}' with length {length}", flush=True)
 	
 		# read virus fasta -  make dictionary in memory of sequences
-		if self.checkFastaExists(virus_fasta_path, fasta_extensions):
+		if self.checkFastaExists(virus_fasta_path):
 			self.virus = SeqIO.to_dict(SeqIO.parse(virus_fasta_path, 'fasta', alphabet=unambiguous_dna))
 			# convert all viral sequences to upper case to make it easier to check output
 			for this_virus in self.virus.values():
@@ -207,6 +205,10 @@ class Events(dict):
 		if self.max_len is not None and self.min_len is not None:
 				if self.min_len > self.max_len:
 					raise ValueError("Minimum length cannot be greater than maximum")
+
+		# check maximum insertion is shorter than all viral references
+		if self.max_len is not None:
+			assert all([len(virus) >= self.max_len for virus in self.virus.values()])
 
 		if self.verbose is True:
 			print(f"imported virus fasta with {len(self.virus)} sequences:", flush=True)
@@ -246,6 +248,7 @@ class Events(dict):
 		assert max_attempts > 0
 		assert int_num >= 0
 		assert min_sep > 0
+		self._check_probs(probs)
 		
 		self.min_sep = min_sep
 		self.max_attempts = max_attempts
@@ -286,7 +289,15 @@ class Events(dict):
 		# if we had fewer than 50% of our attempts left
 		if (counter / max_attempts) > 0.5:
 			print(f"warning: there were {counter} failed integrations", flush=True)
-				
+	
+	def _check_probs(self, prob_dict):
+		"""
+		Check that all keys in probs are present
+		"""
+		for prob in ['p_whole', 'p_rearrange', 'p_delete', 'lambda_split', 'p_overlap', 'p_gap', 'lambda_junction', 'p_host_del', 'lambda_host_del']:
+			if prob not in prob_dict.keys():
+				raise ValueError(f"probs dictionary must contain key '{prob}'")
+
 	def add_episomes(self, probs, epi_num, max_attepmts = 50):
 		"""
 		Add an Integrations object with int_num integrations, with types specified by probs,
@@ -321,7 +332,7 @@ class Events(dict):
 				raise ValueError('too many failed attempts to add episomes')
 
 			
-	def checkFastaExists(self, file, fasta_extensions):
+	def checkFastaExists(self, file):
 		#check file exists
 		exists = path.isfile(file)
 		if not(exists):
@@ -1378,7 +1389,7 @@ class Integration(dict):
 		assert search_length_overlap > 0 and isinstance(search_length_overlap, int)
 		
 		assert isinstance(min_sep, int)
-		assert min_sep > 1
+		assert min_sep > 0
 			
 		# set parameters that won't be changed
 		self.search_length_overlap = search_length_overlap
